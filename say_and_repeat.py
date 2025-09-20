@@ -37,8 +37,9 @@ Notes:
 import sys
 import time
 
+import whisper
 import speech_recognition as sr
-
+import numpy as np
 try:
     import pyttsx3
 except Exception as e:
@@ -54,9 +55,10 @@ TTS_VOLUME = 1.0        # TTS volume 0.0–1.0
 PAUSE_THRESHOLD = 0.6   # Seconds of silence to consider phrase complete
 PHRASE_TIME_LIMIT = 12.0 # Max seconds to listen per phrase
 TIMEOUT = None          # Max seconds to wait for speech start (None = no timeout)
-FORCE_SPHINX = False    # Force offline STT with PocketSphinx
+FORCE_SPHINX = True    # Force offline STT with PocketSphinx
 STOP_WORDS = ["stop", "quit", "exit"]  # Words that end the program when spoken
-
+USE_WHISPER = True
+model = whisper.load_model("tiny")  # or "base", "small", etc.
 
 def speak(text: str):
     """Speak text using TTS engine - simplified approach like main.py"""
@@ -76,22 +78,100 @@ def speak(text: str):
         print(f"TTS Error: {e}")
 
 
-def transcribe(recognizer: sr.Recognizer, audio: sr.AudioData, language: str, force_sphinx: bool = False) -> str:
-    # Try Google first (unless forcing Sphinx), then fallback to Sphinx if available.
-    if not force_sphinx:
+# def transcribe(recognizer: sr.Recognizer, audio: sr.AudioData, language: str, force_sphinx: bool = False) -> str:
+#     # Try Google first (unless forcing Sphinx), then fallback to Sphinx if available.
+#     if not force_sphinx:
+#         try:
+#             return recognizer.recognize_google(audio, language=language)
+#         except sr.RequestError:
+#             # no internet/quota; try Sphinx
+#             pass
+#         except sr.UnknownValueError:
+#             raise
+#     try:
+#         import pocketsphinx  # noqa: F401
+#         return recognizer.recognize_sphinx(audio, language=language)
+#     except Exception as exc:
+#         # If Sphinx not available, propagate a request error to be handled by caller.
+#         raise sr.RequestError("No online service and PocketSphinx not installed") from exc
+
+def transcribe(
+    recognizer: sr.Recognizer,
+    audio: sr.AudioData,
+    language: str,
+    force_sphinx: bool = False,
+    use_whisper: bool = USE_WHISPER,
+) -> str:
+    # Try Google first (unless forcing Sphinx), then Whisper, then fallback to Sphinx if available.
+    # if not force_sphinx:
+    #     try:
+    #         return recognizer.recognize_google(audio, language=language)
+    #     except sr.RequestError:
+    #         # no internet/quota; try Whisper or Sphinx
+    #         pass
+    #     except sr.UnknownValueError:
+    #         raise
+
+    if use_whisper:
         try:
-            return recognizer.recognize_google(audio, language=language)
-        except sr.RequestError:
-            # no internet/quota; try Sphinx
+            import whisper
+            import torch
+            import numpy as np
+            import io
+            import soundfile as sf
+
+            print("Using Whisper")
+
+            # Normalize language (e.g. 'en-US' → 'en')
+            wlang = (language or "en").split("-")[0]
+
+            # Pick tiny.en for English; tiny for others
+            model_name = "tiny.en" if wlang == "en" else "tiny"
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            model = whisper.load_model(model_name, device=device)
+
+            # Get WAV data at 16kHz mono from SpeechRecognition
+            wav_bytes = audio.get_wav_data(convert_rate=16000, convert_width=2)
+
+            # Convert bytes → numpy float32
+            wav_stream = io.BytesIO(wav_bytes)
+            audio_np, sr_rate = sf.read(wav_stream, dtype="float32")
+
+            # Ensure 16kHz mono
+            if sr_rate != 16000:
+                raise ValueError(f"Unexpected sample rate {sr_rate}, expected 16kHz")
+            if audio_np.ndim > 1:  # stereo → mono
+                audio_np = np.mean(audio_np, axis=1)
+
+            # Run Whisper transcription
+            result = model.transcribe(
+                audio_np,
+                language=wlang,
+                fp16=torch.cuda.is_available(),  # only use fp16 on GPU
+                temperature=0.0,
+                without_timestamps=True,
+            )
+            text = (result.get("text") or "").strip()
+            print(f"Whisper result: {text}")
+            if text:
+                return text
+            else:
+                print("Whisper returned empty text; falling back…")
+
+        except Exception as exc:
+            print(f"Whisper error: {exc}")
             pass
-        except sr.UnknownValueError:
-            raise
+
+
+
     try:
+        print("Using Sphinx")
         import pocketsphinx  # noqa: F401
         return recognizer.recognize_sphinx(audio, language=language)
     except Exception as exc:
-        # If Sphinx not available, propagate a request error to be handled by caller.
-        raise sr.RequestError("No online service and PocketSphinx not installed") from exc
+        raise sr.RequestError(
+            "No online service and neither Whisper nor PocketSphinx available"
+        ) from exc
 
 
 ## needed variables
@@ -135,7 +215,7 @@ def main():
 
             # Transcribe
             try:
-                text = transcribe(r, audio, LANGUAGE, force_sphinx=FORCE_SPHINX).strip()
+                text = transcribe(r, audio, LANGUAGE, force_sphinx=FORCE_SPHINX, use_whisper=USE_WHISPER).strip()
             except sr.UnknownValueError:
                 print("I couldn't understand that.")
                 speak("Sorry, I couldn't understand that.")
@@ -151,9 +231,10 @@ def main():
 
             print(f"You said: {text}")
             # Exit if a stop word is spoken exactly
-            if text.lower() in [w.lower() for w in STOP_WORDS]:
-                speak("Goodbye.")
-                break
+            for i in text.lower().split():
+                if i.lower() in [w.lower() for w in STOP_WORDS]:
+                    speak("Goodbye.")
+                    break
 
             # Speak back
             speak(text)
