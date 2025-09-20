@@ -31,49 +31,55 @@ Run:
 
 Notes:
 - Google recognizer requires internet and has usage limits.
-- To change settings, edit the configuration variables at the top of the file.
+- To change settings, edit the .env file or modify config.py.
 """
 
 import sys
 import time
-
+import torch
 import whisper
 import speech_recognition as sr
 import numpy as np
+from config import settings
+
 try:
     import pyttsx3
 except Exception as e:
     print("pyttsx3 is required for TTS. Install with: pip install pyttsx3", file=sys.stderr)
     raise
 
+# Load all configuration variables
+MIC_DEVICE_INDEX = settings.mic_device_index
+LANGUAGE = settings.language
+TTS_RATE = settings.tts_rate
+TTS_VOLUME = settings.tts_volume
+PAUSE_THRESHOLD = settings.pause_threshold
+PHRASE_TIME_LIMIT = settings.phrase_time_limit
+TIMEOUT = settings.timeout
+FORCE_SPHINX = settings.force_sphinx
+STOP_WORDS = settings.get_stop_words_list()
+USE_WHISPER = settings.use_whisper
+WHISPER_MODEL = settings.whisper_model
+TTS_VOICE_PREFERENCE = settings.tts_voice_preference
 
-# Configuration variables
-MIC_DEVICE_INDEX = None  # Microphone device index (None = default)
-LANGUAGE = "en-US"       # Language code for STT & TTS
-TTS_RATE = 170          # TTS speaking rate
-TTS_VOLUME = 1.0        # TTS volume 0.0–1.0
-PAUSE_THRESHOLD = 0.6   # Seconds of silence to consider phrase complete
-PHRASE_TIME_LIMIT = 12.0 # Max seconds to listen per phrase
-TIMEOUT = None          # Max seconds to wait for speech start (None = no timeout)
-FORCE_SPHINX = True    # Force offline STT with PocketSphinx
-STOP_WORDS = ["stop", "quit", "exit"]  # Words that end the program when spoken
-USE_WHISPER = True
-model = whisper.load_model("tiny")  # or "base", "small", etc.
+# Load Whisper model based on configuration
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = whisper.load_model(WHISPER_MODEL, device=device)
 
 def speak(text: str):
     """Speak text using TTS engine - simplified approach like main.py"""
     try:
         engine = pyttsx3.init()
-        # Set voice preference (try to find Jamie voice like in main.py)
+        # Set voice preference (try to find configured voice)
         for voice in engine.getProperty("voices"):
-            if "jamie" in voice.name.lower():
+            if TTS_VOICE_PREFERENCE.lower() in voice.name.lower():
                 engine.setProperty("voice", voice.id)
                 break
         engine.setProperty("rate", TTS_RATE)
         engine.setProperty("volume", TTS_VOLUME)
         engine.say(text)
         engine.runAndWait()
-        time.sleep(0.3)  # Brief pause like in main.py
+        # time.sleep(0.3)  # Brief pause like in main.py
     except Exception as e:
         print(f"TTS Error: {e}")
 
@@ -114,9 +120,6 @@ def transcribe(
 
     if use_whisper:
         try:
-            import whisper
-            import torch
-            import numpy as np
             import io
             import soundfile as sf
 
@@ -124,11 +127,6 @@ def transcribe(
 
             # Normalize language (e.g. 'en-US' → 'en')
             wlang = (language or "en").split("-")[0]
-
-            # Pick tiny.en for English; tiny for others
-            model_name = "tiny.en" if wlang == "en" else "tiny"
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            model = whisper.load_model(model_name, device=device)
 
             # Get WAV data at 16kHz mono from SpeechRecognition
             wav_bytes = audio.get_wav_data(convert_rate=16000, convert_width=2)
@@ -160,13 +158,11 @@ def transcribe(
 
         except Exception as exc:
             print(f"Whisper error: {exc}")
-            pass
 
 
 
     try:
         print("Using Sphinx")
-        import pocketsphinx  # noqa: F401
         return recognizer.recognize_sphinx(audio, language=language)
     except Exception as exc:
         raise sr.RequestError(
@@ -174,23 +170,24 @@ def transcribe(
         ) from exc
 
 
-## needed variables
-# Prepare recognizer & mic
+# Prepare recognizer & mic using configuration
 r = sr.Recognizer()
-# Make phrase segmentation snappier - set to 2 seconds for silence detection
-r.pause_threshold = 2.0  # Stop transcribing after 2 seconds of silence
+# Set pause threshold based on configuration
+r.pause_threshold = PAUSE_THRESHOLD
 r.dynamic_energy_threshold = True
 # r.energy_threshold can be set manually if needed (e.g., in very noisy rooms)
 mic = sr.Microphone(device_index=MIC_DEVICE_INDEX)
 def main():
 
-
-
+    
+    for i in range(10):
+        speak("Hello how are you?")
+        time.sleep(0.01)
     print("=" * 60)
     print("Say & Repeat — SpeechRecognition + pyttsx3")
-    print("Speak a phrase; I'll repeat it. Starts when voice detected, stops after 2s silence.")
+    print(f"Speak a phrase; I'll repeat it. Starts when voice detected, stops after {PAUSE_THRESHOLD}s silence.")
     print("Ctrl+C to quit.")
-    print(f"Language={LANGUAGE}  Silence timeout=2.0s  Limit={PHRASE_TIME_LIMIT}s  Mic={'default' if MIC_DEVICE_INDEX is None else MIC_DEVICE_INDEX}")
+    print(f"Language={LANGUAGE}  Silence timeout={PAUSE_THRESHOLD}s  Limit={PHRASE_TIME_LIMIT}s  Mic={'default' if MIC_DEVICE_INDEX is None else MIC_DEVICE_INDEX}")
     print("=" * 60)
 
     # Calibrate a bit for ambient noise
@@ -205,8 +202,8 @@ def main():
                 # Wait for voice activity to start transcribing
                 try:
                     # Listen for voice activity without timeout, will automatically start when voice detected
-                    # and stop after 2 seconds of silence (pause_threshold)
-                    audio = r.listen(source, timeout=None, phrase_time_limit=PHRASE_TIME_LIMIT)
+                    # and stop after configured seconds of silence (pause_threshold)
+                    audio = r.listen(source, timeout=TIMEOUT, phrase_time_limit=PHRASE_TIME_LIMIT)
                     print("Voice detected, transcribing...")
                 except sr.WaitTimeoutError:
                     # This shouldn't happen with timeout=None, but handle it just in case
@@ -234,7 +231,7 @@ def main():
             for i in text.lower().split():
                 if i.lower() in [w.lower() for w in STOP_WORDS]:
                     speak("Goodbye.")
-                    break
+                    return 0
 
             # Speak back
             speak(text)
