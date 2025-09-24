@@ -79,7 +79,7 @@ def speak(text: str):
         engine.setProperty("volume", TTS_VOLUME)
         engine.say(text)
         engine.runAndWait()
-        # time.sleep(0.3)  # Brief pause like in main.py
+        time.sleep(1)  # Brief pause like in main.py
     except Exception as e:
         print(f"TTS Error: {e}")
 
@@ -180,7 +180,7 @@ mic = sr.Microphone(device_index=MIC_DEVICE_INDEX)
 def main():
 
     
-    for i in range(10):
+    for i in range(1):
         speak("Hello how are you?")
         time.sleep(0.01)
     print("=" * 60)
