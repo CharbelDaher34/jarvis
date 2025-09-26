@@ -89,7 +89,7 @@ class GoogleSearchEngine(SearchEngine):
                 # stop=query.max_results,
                 unique=True,
                 lang=query.language,
-                tld=f"google.{query.region}" if query.region != "us" else "google.com"
+                # tld=f"google.{query.region}" if query.region != "us" else "google.com"
             ):
                 # Validate URL
                 is_valid, error = validate_url(url)
@@ -155,7 +155,11 @@ class DuckDuckGoSearchEngine(SearchEngine):
     def search(self, query: SearchQuery) -> List[SearchResult]:
         """Perform DuckDuckGo search."""
         try:
-            from duckduckgo_search import DDGS
+            # Prefer the renamed package `ddgs`; fall back to legacy `duckduckgo_search`.
+            try:
+                from ddgs import DDGS  # type: ignore
+            except ImportError:
+                from duckduckgo_search import DDGS  # type: ignore
             
             search_string = self._build_search_string(query)
             
@@ -193,7 +197,7 @@ class DuckDuckGoSearchEngine(SearchEngine):
                 return results
                 
         except ImportError:
-            raise SearchError("duckduckgo-search package not installed")
+            raise SearchError("ddgs (or legacy duckduckgo-search) package not installed. Install via 'pip install ddgs'.")
         except Exception as e:
             raise SearchError(f"DuckDuckGo search failed: {str(e)}")
     

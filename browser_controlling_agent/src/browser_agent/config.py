@@ -22,6 +22,8 @@ class BrowserConfig:
     disable_images: bool = False
     disable_javascript: bool = False
     user_agent: Optional[str] = None
+    remote_debugging_port: int = 9222
+    allow_debugger_attach: bool = True
     
 @dataclass
 class SearchConfig:
@@ -88,6 +90,8 @@ class AgentConfig:
         config.browser.window_width = int(os.getenv("BROWSER_WIDTH", str(config.browser.window_width)))
         config.browser.window_height = int(os.getenv("BROWSER_HEIGHT", str(config.browser.window_height)))
         config.browser.page_load_timeout = int(os.getenv("PAGE_LOAD_TIMEOUT", str(config.browser.page_load_timeout)))
+        config.browser.remote_debugging_port = int(os.getenv("BROWSER_DEBUG_PORT", str(config.browser.remote_debugging_port)))
+        config.browser.allow_debugger_attach = os.getenv("BROWSER_ATTACH_DEBUGGER", "true").lower() == "true"
         
         # Search settings
         config.search.default_engine = os.getenv("DEFAULT_SEARCH_ENGINE", config.search.default_engine)

@@ -4,9 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.messages import BinaryContent
-from pydantic_ai.settings import ModelSettings
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.models.google import GoogleModel, GoogleModelSettings
 
@@ -20,14 +18,8 @@ from src.browser_agent.tools import (
     wait_for_element,
     smart_click,
 )
-from src.browser_agent.error_handling import (
-    BrowserAgentError, NavigationError, ElementNotFoundError,
-    validate_url, safe_execute, TimeoutManager, with_async_retry, RetryConfig
-)
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
-from selenium.webdriver.common.keys import Keys
-import asyncio
 import logging
 
 
@@ -40,51 +32,84 @@ class BrowserDeps:
 # Import configuration system
 from src.browser_agent.config import load_config
 
+logger = logging.getLogger(__name__)
+    # --- Tool definitions ----------------------------------------------------
+
+
+
+def _build_openai_model(settings: dict) -> OpenAIChatModel:
+    api_key = settings.get("api_key")
+    if api_key:
+        import os
+        os.environ["OPENAI_API_KEY"] = api_key
+    return OpenAIChatModel(
+        model_name=settings["model"],
+        # api_key=api_key,
+        settings={"parallel_tool_calls": True, "max_tokens": 1024},
+    )
+
+
+def _build_gemini_model(settings: dict) -> GoogleModel:
+    import os
+
+    api_key = settings.get("api_key")
+    if api_key:
+        os.environ["GEMINI_API_KEY"] = api_key
+    return GoogleModel(
+        settings["model"],
+        settings=GoogleModelSettings(google_thinking_config={'include_thoughts': False})
+    )
+
+
+def _build_ollama_model(settings: dict) -> OpenAIChatModel:
+    return OpenAIChatModel(
+        model_name=settings["model"],
+        provider=OllamaProvider(base_url=settings["base_url"]),
+    )
+
+
+MODEL_FACTORIES = {
+    "openai": _build_openai_model,
+    "gemini": _build_gemini_model,
+    "ollama": _build_ollama_model,
+}
+
+
 def create_model():
     """Create and configure the AI model based on available API keys."""
     config = load_config()
     model_type, model_config = config.get_available_model()
-    
-    if model_type == "openai":
-        return OpenAIModel(
-            model_name=model_config["model"],
-            api_key=model_config["api_key"]
-        )
-    elif model_type == "gemini":
-        # Set the environment variable for Gemini
-        import os
-        os.environ["GEMINI_API_KEY"] = model_config["api_key"]
-        return GoogleModel(
-            model_config["model"],
-            settings=GoogleModelSettings(google_thinking_config={'include_thoughts': False})
-        )
-    elif model_type == "ollama":
-        return OpenAIModel(
-            model_name=model_config["model"],
-            provider=OllamaProvider(base_url=model_config["base_url"]),
-        )
-    else:
-        raise ValueError(f"Unsupported model type: {model_type}")
 
-# Create the model dynamically
+    try:
+        builder = MODEL_FACTORIES[model_type]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported model type: {model_type}") from exc
+
+    model = builder(model_config)
+    logger.info("Using %s model '%s'", model_type, model_config.get("model"))
+    return model
+
+
 model = create_model()
+
+AGENT_INSTRUCTIONS = (
+    "You are a web browsing assistant. Use tools to navigate and interact with web pages. "
+    "You can perform Google searches to find relevant URLs using tool_google_search. "
+    "After clicking or navigation, always take a screenshot to observe the current state. "
+    "Never attempt to log in to websites. "
+    "Use helium commands for navigation: go_to(url), click('text'), scroll_down(num_pixels=1200), etc. "
+    "When you encounter popups, use the close_popups tool rather than trying to click 'X' buttons. "
+    "Use .exists() to check if elements exist before interacting with them. "
+    "For example: if Text('Accept cookies?').exists(): click('I accept') "
+    "Stop after each action to observe the results via screenshot. "
+    "When searching for information, first use tool_google_search to find relevant URLs, then navigate to them."
+)
 
 browser_agent = Agent[BrowserDeps, str](
     model,
     deps_type=BrowserDeps,
     output_type=str,
-    instructions=(
-        "You are a web browsing assistant. Use tools to navigate and interact with web pages. "
-        "You can perform Google searches to find relevant URLs using tool_google_search. "
-        "After clicking or navigation, always take a screenshot to observe the current state. "
-        "Never attempt to log in to websites. "
-        "Use helium commands for navigation: go_to(url), click('text'), scroll_down(num_pixels=1200), etc. "
-        "When you encounter popups, use the close_popups tool rather than trying to click 'X' buttons. "
-        "Use .exists() to check if elements exist before interacting with them. "
-        "For example: if Text('Accept cookies?').exists(): click('I accept') "
-        "Stop after each action to observe the results via screenshot. "
-        "When searching for information, first use tool_google_search to find relevant URLs, then navigate to them."
-    ),
+    instructions=AGENT_INSTRUCTIONS,
 )
 
 
@@ -121,9 +146,19 @@ async def tool_execute_python(ctx: RunContext[BrowserDeps], code: str) -> str:
 async def tool_go_to(ctx: RunContext[BrowserDeps], url: str) -> str:
     """Navigate to a specific URL."""
     try:
-        
         import helium
-        print(f"Going to {url}")
+        try:
+            driver = get_driver()
+        except Exception as exc:
+            logger.debug("Unable to acquire driver before opening new tab: %s", exc)
+            driver = None
+        if driver:
+            try:
+                driver.switch_to.new_window("tab")
+            except Exception:
+                driver.execute_script("window.open('about:blank', '_blank');")
+                driver.switch_to.window(driver.window_handles[-1])
+        logger.info("Navigating to %s", url)
         helium.go_to(url)
         return f"Successfully navigated to {url}"
     except Exception as e:
@@ -341,7 +376,7 @@ async def tool_fill_form(ctx: RunContext[BrowserDeps], field_name: str, value: s
                 strategy()
                 return f"Successfully filled field '{field_name}' with value '{value}'"
             except Exception as e:
-                logging.debug(f"Form fill strategy failed: {e}")
+                logger.debug(f"Form fill strategy failed: {e}")
         
         # Fallback to Selenium
         driver = get_driver()
@@ -364,7 +399,7 @@ async def tool_fill_form(ctx: RunContext[BrowserDeps], field_name: str, value: s
                     element.send_keys(value)
                     return f"Successfully filled field '{field_name}' using selector '{selector}'"
             except Exception as e:
-                logging.debug(f"Selector '{selector}' failed: {e}")
+                logger.debug(f"Selector '{selector}' failed: {e}")
         
         return f"Could not find form field '{field_name}'"
         
@@ -404,7 +439,7 @@ async def tool_select_dropdown(ctx: RunContext[BrowserDeps], dropdown_name: str,
                     dropdown_element = elements[0]
                     break
             except Exception as e:
-                logging.debug(f"Dropdown selector '{selector}' failed: {e}")
+                logger.debug(f"Dropdown selector '{selector}' failed: {e}")
         
         if not dropdown_element:
             return f"Could not find dropdown '{dropdown_name}'"
@@ -662,7 +697,7 @@ async def tool_handle_cookies(ctx: RunContext[BrowserDeps], action: str = "accep
                             return f"Cookie banner handled: clicked '{pattern}' button"
                             
                 except Exception as e:
-                    logging.debug(f"Cookie selector '{selector}' failed: {e}")
+                    logger.debug(f"Cookie selector '{selector}' failed: {e}")
         
         return f"No cookie banner elements found for action '{action}'"
         
@@ -691,7 +726,7 @@ def helium_instructions(_: RunContext[BrowserDeps]) -> str:
 async def run_with_screenshot(prompt: str, deps: Optional[BrowserDeps] = None) -> str:
     """Run the agent with optional screenshot analysis."""
     # Run the agent first
-    print("Running browser agent...")
+    logger.info("Running browser agent")
     result = await browser_agent.run(prompt, deps=deps or BrowserDeps())
     return result.output 
     # # For vision-capable models, capture and analyze screenshot

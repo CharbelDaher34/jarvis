@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from dataclasses import dataclass
-from typing import Optional
+from typing import Awaitable, Callable, Dict, Optional
 
 from dotenv import load_dotenv
 # Load environment variables
@@ -16,6 +17,28 @@ from src.browser_agent.runner import run_task
 from src.browser_agent.config import load_config
 from src.browser_agent.user_experience import logger
 from src.browser_agent.performance import start_performance_monitoring, stop_performance_monitoring
+
+
+EXIT_COMMANDS = {"exit", "quit", "q"}
+
+
+async def _show_help() -> None:
+    print_help()
+
+
+async def _show_status() -> None:
+    await print_status()
+
+
+async def _clear_screen() -> None:
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+
+COMMAND_HANDLERS: Dict[str, Callable[[], Awaitable[None]]] = {
+    "help": _show_help,
+    "status": _show_status,
+    "clear": _clear_screen,
+}
 
 
 @dataclass
@@ -131,7 +154,7 @@ def check_configuration() -> bool:
 
 
 async def interactive_mode(headless: bool, performance: bool) -> None:
-    """Run in interactive mode with command prompt."""
+    """Run in interactive mode with a simple command loop."""
     print("🤖 Enhanced Browser Agent - Interactive Mode")
     print("=" * 50)
     print("Type your automation requests or commands:")
@@ -153,22 +176,15 @@ async def interactive_mode(headless: bool, performance: bool) -> None:
                 if not prompt:
                     continue
                 
-                # Handle special commands
-                if prompt.lower() in ['exit', 'quit', 'q']:
+                command = prompt.lower()
+
+                if command in EXIT_COMMANDS:
                     print("👋 Goodbye!")
                     break
-                
-                elif prompt.lower() == 'help':
-                    print_help()
-                    continue
-                
-                elif prompt.lower() == 'status':
-                    await print_status()
-                    continue
-                
-                elif prompt.lower() == 'clear':
-                    import os
-                    os.system('cls' if os.name == 'nt' else 'clear')
+
+                handler = COMMAND_HANDLERS.get(command)
+                if handler:
+                    await handler()
                     continue
                 
                 # Execute automation task
@@ -267,36 +283,36 @@ async def run_single_task(prompt: str, headless: bool, performance: bool) -> Non
         
     except Exception as e:
         logger.error(f"Task execution failed: {e}")
-        sys.exit(1)
+        raise
     
     finally:
         if performance:
             stop_performance_monitoring()
 
+async def _dispatch(args: Args) -> int:
+    """Execute the requested mode and return an exit code."""
+    if args.config_check:
+        success = check_configuration()
+        return 0 if success else 1
+
+    if args.interactive:
+        await interactive_mode(args.headless, args.performance)
+        return 0
+
+    if args.prompt:
+        await run_single_task(args.prompt, args.headless, args.performance)
+        return 0
+
+    # parse_args enforces that one of the above is true
+    return 0
+
 
 def main() -> None:
     """Main entry point."""
-
-    
     try:
-        # Parse command line arguments
         args = parse_args()
-        
-        # Configuration check mode
-        if args.config_check:
-            success = check_configuration()
-            sys.exit(0 if success else 1)
-        args.headless = False  # Force
-        # Interactive mode
-        if args.interactive:
-            asyncio.run(interactive_mode(args.headless, args.performance))
-            return
-        
-        # Single task mode
-        if args.prompt:
-            asyncio.run(run_single_task(args.prompt, args.headless, args.performance))
-            return
-        
+        exit_code = asyncio.run(_dispatch(args))
+        sys.exit(exit_code)
     except KeyboardInterrupt:
         print("\n👋 Operation cancelled by user")
         sys.exit(0)

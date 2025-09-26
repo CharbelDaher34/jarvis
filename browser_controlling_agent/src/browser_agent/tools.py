@@ -229,7 +229,7 @@ def go_back() -> str:
         driver.back()
         
         # Wait briefly for navigation
-        sleep(1)
+        #sleep(1)
         
         # Check if we actually went back
         new_url = driver.current_url
@@ -257,7 +257,7 @@ def close_popups() -> str:
         try:
             webdriver.ActionChains(driver).send_keys(Keys.ESCAPE).perform()
             actions_taken.append("Sent ESC key")
-            sleep(0.5)  # Brief pause between attempts
+            #sleep(0.5)  # Brief pause between attempts
         except Exception as e:
             logger.debug(f"ESC key strategy failed: {e}")
         
@@ -280,7 +280,7 @@ def close_popups() -> str:
                     if element.is_displayed() and element.is_enabled():
                         element.click()
                         actions_taken.append(f"Clicked close button: {selector}")
-                        sleep(0.3)
+                        #sleep(0.3)
                         break
             except Exception as e:
                 logger.debug(f"Close button selector '{selector}' failed: {e}")
@@ -294,7 +294,7 @@ def close_popups() -> str:
                     if element.is_displayed():
                         element.click()
                         actions_taken.append(f"Clicked overlay: {selector}")
-                        sleep(0.3)
+                        #sleep(0.3)
                         break
         except Exception as e:
             logger.debug(f"Overlay click strategy failed: {e}")
@@ -334,7 +334,7 @@ def capture_screenshot() -> Optional[bytes]:
         )
         
         # Brief pause for dynamic content
-        sleep(1.0)
+        #sleep(1.0)
         
         # Capture screenshot with timeout
         with TimeoutManager(10.0, "Screenshot capture"):

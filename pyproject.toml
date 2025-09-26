@@ -24,4 +24,6 @@ dependencies = [
     "psutil>=7.1.0",
     "duckduckgo-search>=8.1.1",
     "ddgs>=9.6.0",
+    "scrapy>=2.13.3",
+    "scrapy-playwright>=0.0.44",
 ]
