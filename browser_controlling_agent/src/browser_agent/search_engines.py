@@ -16,6 +16,15 @@ import requests
 from src.browser_agent.error_handling import SearchError, validate_url, with_retry, RetryConfig
 from src.browser_agent.config import load_config
 
+# Try to import DDGSException for error handling
+try:
+    from ddgs import DDGSException  # type: ignore
+except ImportError:
+    try:
+        from duckduckgo_search import DDGSException  # type: ignore
+    except ImportError:
+        DDGSException = None
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -68,15 +77,16 @@ class GoogleSearchEngine(SearchEngine):
     Google search implementation using the official Google Custom Search JSON API.
     
     Requires:
-      - Google API key
-      - Custom Search Engine (CSE) ID (CX)
+      - Google API key (GOOGLE_API_KEY env var)
+      - Custom Search Engine (CSE) ID (GOOGLE_SEARCH_ENGINE_ID or GOOGLE_CSE_ID env var)
     """
 
     BASE_URL = "https://www.googleapis.com/customsearch/v1"
 
-    def __init__(self, api_key: str = "", search_engine_id: str =""):
-        self.api_key = "AIzaSyC_ddspMbvVBWKj4AZ-AO9jiPGP23sNzhg"
-        self.cx = "30c1da3f66f9f4f67"
+    def __init__(self, api_key: Optional[str] = None, search_engine_id: Optional[str] = None):
+        config = load_config()
+        self.api_key = api_key or config.search.google_api_key
+        self.cx = search_engine_id or config.search.google_search_engine_id
 
     @property
     def name(self) -> str:
@@ -85,6 +95,9 @@ class GoogleSearchEngine(SearchEngine):
     @with_retry(RetryConfig(max_attempts=3, base_delay=2.0), (Exception,), logger)
     def search(self, query: "SearchQuery") -> List["SearchResult"]:
         """Perform Google search via the Custom Search API."""
+        if not self.api_key or not self.cx:
+            raise SearchError("Google API key and Search Engine ID must be configured via GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID environment variables")
+        
         try:
             params = {
                 "key": self.api_key,
@@ -165,6 +178,11 @@ class DuckDuckGoSearchEngine(SearchEngine):
             except ImportError:
                 from duckduckgo_search import DDGS  # type: ignore
             
+            # Suppress ddgs internal logging for cleaner output
+            ddgs_logger = logging.getLogger('ddgs.ddgs')
+            original_level = ddgs_logger.level
+            ddgs_logger.setLevel(logging.WARNING)
+            
             search_string = self._build_search_string(query)
             
             with DDGS() as ddgs:
@@ -197,13 +215,20 @@ class DuckDuckGoSearchEngine(SearchEngine):
                     results.append(result)
                     rank += 1
                 
+                # Restore original logging level
+                ddgs_logger.setLevel(original_level)
+                
                 logger.info(f"DuckDuckGo search for '{query.query}' returned {len(results)} results")
                 return results
                 
-        except ImportError:
-            raise SearchError("ddgs (or legacy duckduckgo-search) package not installed. Install via 'pip install ddgs'.")
         except Exception as e:
-            raise SearchError(f"DuckDuckGo search failed: {str(e)}")
+            # Check if it's a DDGSException
+            if DDGSException and isinstance(e, DDGSException):
+                raise SearchError(f"DuckDuckGo search failed due to library error: {str(e)}")
+            elif isinstance(e, ImportError):
+                raise SearchError("ddgs (or legacy duckduckgo-search) package not installed. Install via 'pip install ddgs'.")
+            else:
+                raise SearchError(f"DuckDuckGo search failed: {str(e)}")
     
     def _build_search_string(self, query: SearchQuery) -> str:
         """Build DuckDuckGo search string with filters."""
@@ -227,16 +252,12 @@ class BingSearchEngine(SearchEngine):
     """Bing search implementation (requires API key)."""
     
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or self._get_api_key()
+        config = load_config()
+        self.api_key = api_key or config.search.bing_api_key
     
     @property
     def name(self) -> str:
         return "bing"
-    
-    def _get_api_key(self) -> Optional[str]:
-        """Get Bing API key from environment."""
-        import os
-        return os.getenv("BING_SEARCH_API_KEY")
     
     def search(self, query: SearchQuery) -> List[SearchResult]:
         """Perform Bing search via API."""
@@ -377,8 +398,12 @@ class EnhancedSearchManager:
     
     def _initialize_engines(self):
         """Initialize available search engines."""
-        # Google (always available with googlesearch-python)
-        self.engines["google"] = GoogleSearchEngine()
+        # Google (if API key and CX are configured)
+        google_engine = GoogleSearchEngine()
+        if google_engine.api_key and google_engine.cx:
+            self.engines["google"] = google_engine
+        else:
+            logger.info("Google search not available - GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID not configured")
         
         # DuckDuckGo (if package available)
         try:
@@ -387,11 +412,11 @@ class EnhancedSearchManager:
             logger.warning("DuckDuckGo search not available - install duckduckgo-search package")
         
         # Bing (if API key available)
-        bing_engine = BingSearchEngine()
-        if bing_engine.api_key:
-            self.engines["bing"] = bing_engine
-        else:
-            logger.info("Bing search not available - BING_SEARCH_API_KEY not configured")
+        # bing_engine = BingSearchEngine()
+        # if bing_engine.api_key:
+        #     self.engines["bing"] = bing_engine
+        # else:
+        #     logger.info("Bing search not available - BING_SEARCH_API_KEY not configured")
     
     def get_available_engines(self) -> List[str]:
         """Get list of available search engine names."""

@@ -1,145 +1,210 @@
 """
 Configuration management for the browser agent.
-Handles environment variables, API keys, and browser settings.
+Handles environment variables, API keys, and browser settings using Pydantic Settings.
 """
 from __future__ import annotations
 
-import os
 import re
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse
 
-@dataclass
-class BrowserConfig:
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class BrowserConfig(BaseSettings):
     """Browser-specific configuration settings."""
-    headless: bool = False
-    window_width: int = 1200
-    window_height: int = 800
-    page_load_timeout: int = 30
-    implicit_wait: int = 10
-    download_directory: Optional[str] = None
-    disable_images: bool = False
-    disable_javascript: bool = False
-    user_agent: Optional[str] = None
-    remote_debugging_port: int = 9222
-    allow_debugger_attach: bool = True
+    headless: bool = Field(default=False, description="Run browser in headless mode")
+    window_width: int = Field(default=1200, ge=100, description="Browser window width")
+    window_height: int = Field(default=800, ge=100, description="Browser window height")
+    page_load_timeout: int = Field(default=30, ge=1, description="Page load timeout in seconds")
+    implicit_wait: int = Field(default=10, ge=0, description="Implicit wait time in seconds")
+    download_directory: Optional[str] = Field(default=None, description="Download directory path")
+    disable_images: bool = Field(default=False, description="Disable image loading")
+    disable_javascript: bool = Field(default=False, description="Disable JavaScript")
+    user_agent: Optional[str] = Field(default=None, description="Custom user agent string")
+    remote_debugging_port: int = Field(default=9222, ge=1024, le=65535, description="Remote debugging port")
+    allow_debugger_attach: bool = Field(default=True, description="Allow debugger to attach")
     
-@dataclass
-class SearchConfig:
+    model_config = SettingsConfigDict(
+        env_prefix="BROWSER_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore"
+    )
+
+
+class SearchConfig(BaseSettings):
     """Search engine configuration."""
-    default_engine: str = "duckduckgo"  # Changed from "google" - DuckDuckGo is more reliable for automation
-    max_results_per_search: int = 10
-    search_timeout: int = 30
-    result_cache_ttl: int = 300  # 5 minutes
+    default_engine: str = Field(
+        default="duckduckgo",
+        description="Default search engine (google, duckduckgo, bing)"
+    )
+    max_results_per_search: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Maximum search results per query"
+    )
+    search_timeout: int = Field(default=30, ge=1, description="Search timeout in seconds")
+    result_cache_ttl: int = Field(default=300, ge=0, description="Cache TTL in seconds")
+    google_api_key: Optional[str] = Field(default=None, description="Google Custom Search API key")
+    google_search_engine_id: Optional[str] = Field(default=None, description="Google CSE ID")
+    bing_api_key: Optional[str] = Field(default=None, description="Bing Search API key")
     
-@dataclass
-class SecurityConfig:
+    model_config = SettingsConfigDict(
+        env_prefix="",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore"
+    )
+    
+    @field_validator("google_search_engine_id", mode="before")
+    @classmethod
+    def validate_google_cse_id(cls, v: Optional[str]) -> Optional[str]:
+        """Allow GOOGLE_CSE_ID as alternative name."""
+        import os
+        if v is None:
+            return os.getenv("GOOGLE_CSE_ID")
+        return v
+
+
+class SecurityConfig(BaseSettings):
     """Security and validation settings."""
-    allowed_domains: list[str] = field(default_factory=list)
-    blocked_domains: list[str] = field(default_factory=lambda: [
-        "malware.com", "phishing.com", "spam.com"  # Example blocked domains
-    ])
-    max_redirects: int = 5
-    ssl_verify: bool = True
+    allowed_domains: List[str] = Field(
+        default_factory=list,
+        description="List of allowed domains (empty = allow all)"
+    )
+    blocked_domains: List[str] = Field(
+        default_factory=lambda: ["malware.com", "phishing.com", "spam.com"],
+        description="List of blocked domains"
+    )
+    max_redirects: int = Field(default=5, ge=0, description="Maximum number of redirects")
+    ssl_verify: bool = Field(default=True, description="Verify SSL certificates")
     
-@dataclass
-class AgentConfig:
+    model_config = SettingsConfigDict(
+        env_prefix="SECURITY_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore"
+    )
+    
+    @field_validator("allowed_domains", "blocked_domains", mode="before")
+    @classmethod
+    def parse_domain_list(cls, v) -> List[str]:
+        """Parse comma-separated domain list from environment variable."""
+        if isinstance(v, str):
+            return [d.strip() for d in v.split(",") if d.strip()]
+        return v if v else []
+    
+    @field_validator("allowed_domains", "blocked_domains")
+    @classmethod
+    def validate_domains(cls, v: List[str]) -> List[str]:
+        """Validate domain format."""
+        domain_pattern = re.compile(
+            r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?'
+            r'(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$'
+        )
+        for domain in v:
+            if not domain_pattern.match(domain):
+                raise ValueError(f"Invalid domain format: {domain}")
+        return v
+
+
+class AgentConfig(BaseSettings):
     """Main configuration for the browser agent."""
+    
     # API Configuration
-    openai_api_key: Optional[str] = None
-    gemini_api_key: Optional[str] = None
-    anthropic_api_key: Optional[str] = None
-    ollama_base_url: str = "http://localhost:11434/v1"
+    openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
+    gemini_api_key: Optional[str] = Field(default=None, description="Google Gemini API key")
+    anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic API key")
+    ollama_base_url: str = Field(
+        default="http://localhost:11434/v1",
+        description="Ollama base URL"
+    )
     
     # Model Selection
-    preferred_model: str = "auto"  # auto, openai, gemini, anthropic, ollama
-    openai_model: str = "gpt-4o-mini"
-    gemini_model: str = "gemini-2.0-flash"
-    anthropic_model: str = "claude-3-sonnet-20240229"
-    ollama_model: str = "llama3:8b"
-    
-    # Sub-configurations
-    browser: BrowserConfig = field(default_factory=BrowserConfig)
-    search: SearchConfig = field(default_factory=SearchConfig)
-    security: SecurityConfig = field(default_factory=SecurityConfig)
+    preferred_model: str = Field(
+        default="auto",
+        description="Preferred model: auto, openai, gemini, anthropic, ollama"
+    )
+    openai_model: str = Field(default="gpt-4o-mini", description="OpenAI model name")
+    gemini_model: str = Field(default="gemini-2.0-flash", description="Gemini model name")
+    anthropic_model: str = Field(
+        default="claude-3-sonnet-20240229",
+        description="Anthropic model name"
+    )
+    ollama_model: str = Field(default="llama3:8b", description="Ollama model name")
     
     # Logging and debugging
-    log_level: str = "INFO"
-    enable_screenshots: bool = True
-    screenshot_on_error: bool = True
+    log_level: str = Field(
+        default="INFO",
+        description="Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL"
+    )
+    enable_screenshots: bool = Field(default=True, description="Enable screenshot capture")
+    screenshot_on_error: bool = Field(default=True, description="Capture screenshot on error")
     
+    # Sub-configurations (will be initialized separately)
+    browser: BrowserConfig = Field(default_factory=BrowserConfig)
+    search: SearchConfig = Field(default_factory=SearchConfig)
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
+    
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore"
+    )
+
+    
+    @field_validator("ollama_base_url")
     @classmethod
-    def from_env(cls) -> 'AgentConfig':
-        """Create configuration from environment variables."""
-        config = cls()
-        
-        # Load API keys from environment
-        config.openai_api_key = os.getenv("OPENAI_API_KEY")
-        config.gemini_api_key = os.getenv("GEMINI_API_KEY") 
-        config.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-        config.ollama_base_url = os.getenv("OLLAMA_BASE_URL", config.ollama_base_url)
-        
-        # Model configuration
-        config.preferred_model = os.getenv("PREFERRED_MODEL", config.preferred_model)
-        config.openai_model = os.getenv("OPENAI_MODEL", config.openai_model)
-        config.gemini_model = os.getenv("GEMINI_MODEL", config.gemini_model)
-        
-        # Browser settings
-        config.browser.headless = os.getenv("BROWSER_HEADLESS", "false").lower() == "true"
-        config.browser.window_width = int(os.getenv("BROWSER_WIDTH", str(config.browser.window_width)))
-        config.browser.window_height = int(os.getenv("BROWSER_HEIGHT", str(config.browser.window_height)))
-        config.browser.page_load_timeout = int(os.getenv("PAGE_LOAD_TIMEOUT", str(config.browser.page_load_timeout)))
-        config.browser.remote_debugging_port = int(os.getenv("BROWSER_DEBUG_PORT", str(config.browser.remote_debugging_port)))
-        config.browser.allow_debugger_attach = os.getenv("BROWSER_ATTACH_DEBUGGER", "true").lower() == "true"
-        
-        # Search settings
-        config.search.default_engine = os.getenv("DEFAULT_SEARCH_ENGINE", config.search.default_engine)
-        config.search.max_results_per_search = int(os.getenv("MAX_SEARCH_RESULTS", str(config.search.max_results_per_search)))
-        
-        # Security settings
-        allowed_domains = os.getenv("ALLOWED_DOMAINS")
-        if allowed_domains:
-            config.security.allowed_domains = [domain.strip() for domain in allowed_domains.split(",")]
-        
-        # Logging
-        config.log_level = os.getenv("LOG_LEVEL", config.log_level)
-        config.enable_screenshots = os.getenv("ENABLE_SCREENSHOTS", "true").lower() == "true"
-        
-        return config
+    def validate_ollama_url(cls, v: str) -> str:
+        """Validate Ollama base URL format."""
+        if v:
+            try:
+                parsed = urlparse(v)
+                if not parsed.scheme or not parsed.netloc:
+                    raise ValueError("Invalid Ollama base URL format")
+            except Exception as e:
+                raise ValueError(f"Invalid Ollama base URL: {e}")
+        return v
     
-    def validate(self) -> list[str]:
-        """Validate configuration and return list of errors."""
-        errors = []
+    @field_validator("log_level")
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        """Validate log level."""
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        v_upper = v.upper()
+        if v_upper not in valid_levels:
+            raise ValueError(f"Invalid log level. Must be one of: {', '.join(valid_levels)}")
+        return v_upper
+    
+    @model_validator(mode="after")
+    def initialize_sub_configs(self) -> "AgentConfig":
+        """Initialize sub-configurations with environment variables."""
+        # Sub-configs are automatically initialized by Pydantic
+        # This validator can be used for cross-field validation if needed
+        return self
+
+    
+    def validate_api_keys(self) -> List[str]:
+        """Validate API key configuration and return list of warnings."""
+        warnings = []
         
         # Check if at least one API key is available
         if not any([self.openai_api_key, self.gemini_api_key, self.anthropic_api_key]):
             if self.preferred_model != "ollama":
-                errors.append("No API keys found. Set at least one: OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY")
+                warnings.append(
+                    "No API keys found. Set at least one: OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY. "
+                    "Falling back to Ollama (local model)."
+                )
         
-        # Validate browser settings
-        if self.browser.window_width < 100 or self.browser.window_height < 100:
-            errors.append("Browser window dimensions must be at least 100x100")
-            
-        if self.browser.page_load_timeout < 1:
-            errors.append("Page load timeout must be at least 1 second")
-        
-        # Validate URLs
-        if self.ollama_base_url:
-            try:
-                parsed = urlparse(self.ollama_base_url)
-                if not parsed.scheme or not parsed.netloc:
-                    errors.append("Invalid Ollama base URL format")
-            except Exception:
-                errors.append("Invalid Ollama base URL")
-        
-        # Validate domains
-        domain_pattern = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$')
-        for domain in self.security.allowed_domains + self.security.blocked_domains:
-            if not domain_pattern.match(domain):
-                errors.append(f"Invalid domain format: {domain}")
-        
-        return errors
+        return warnings
+
     
     def get_available_model(self) -> tuple[str, Dict[str, Any]]:
         """
@@ -185,13 +250,23 @@ class AgentConfig:
         else:
             raise ValueError(f"Unknown model type: {model_type}")
 
+
 def load_config() -> AgentConfig:
-    """Load and validate configuration from environment."""
-    config = AgentConfig.from_env()
-    errors = config.validate()
-    
-    if errors:
-        error_msg = "Configuration validation failed:\n" + "\n".join(f"- {error}" for error in errors)
-        # raise ValueError(error_msg)
-    
-    return config
+    """
+    Load and validate configuration from environment.
+    Uses Pydantic Settings to automatically load from .env file.
+    """
+    try:
+        config = AgentConfig()
+        
+        # Check for API key warnings
+        warnings = config.validate_api_keys()
+        if warnings:
+            import logging
+            logger = logging.getLogger(__name__)
+            for warning in warnings:
+                logger.warning(warning)
+        
+        return config
+    except Exception as e:
+        raise ValueError(f"Configuration loading failed: {e}")

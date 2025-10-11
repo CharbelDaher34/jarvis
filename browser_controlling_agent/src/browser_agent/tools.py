@@ -19,8 +19,16 @@ from src.browser_agent.error_handling import (
     RetryConfig, safe_execute, TimeoutManager
 )
 from src.browser_agent.config import load_config
+from src.browser_agent.utils import (
+    configure_logger,
+    format_error_message,
+    sanitize_selector,
+    truncate_text,
+    format_time_elapsed
+)
 
 # Setup logging
+configure_logger()
 logger = logging.getLogger(__name__)
 
 
@@ -409,7 +417,118 @@ def smart_click(text_or_selector: str, timeout: int = 10) -> str:
     Raises:
         ElementNotFoundError: If element cannot be found or clicked
     """
+    import time
+    start_time = time.time()
+    
     try:
+        driver = get_driver()
+        wait = WebDriverWait(driver, timeout)
+        element = None
+        strategy_used = ""
+        
+        # Strategy 1: Try as CSS selector
+        if any(char in text_or_selector for char in ['.', '#', '[', ']', '>']):
+            try:
+                sanitized = sanitize_selector(text_or_selector)
+                element = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, sanitized)))
+                strategy_used = f"CSS selector '{truncate_text(text_or_selector, 50)}'"
+                logger.debug(f"Found element using CSS selector: {text_or_selector}")
+            except TimeoutException:
+                pass
+        
+        # Strategy 2: Try exact text match
+        if not element:
+            try:
+                xpath = f"//*[normalize-space(text())='{text_or_selector}']"
+                element = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+                strategy_used = f"exact text '{truncate_text(text_or_selector, 50)}'"
+                logger.debug(f"Found element using exact text: {text_or_selector}")
+            except TimeoutException:
+                pass
+        
+        # Strategy 3: Try partial text match
+        if not element:
+            try:
+                xpath = f"//*[contains(text(), '{text_or_selector}')]"
+                element = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+                strategy_used = f"partial text '{truncate_text(text_or_selector, 50)}'"
+                logger.debug(f"Found element using partial text: {text_or_selector}")
+            except TimeoutException:
+                pass
+        
+        # Strategy 4: Try as link text
+        if not element:
+            try:
+                element = wait.until(EC.element_to_be_clickable((By.LINK_TEXT, text_or_selector)))
+                strategy_used = f"link text '{truncate_text(text_or_selector, 50)}'"
+                logger.debug(f"Found element using link text: {text_or_selector}")
+            except TimeoutException:
+                pass
+        
+        # Strategy 5: Try attributes (aria-label, title, etc.)
+        if not element:
+            for attr in ['aria-label', 'title', 'alt', 'placeholder']:
+                try:
+                    xpath = f"//*[@{attr}='{text_or_selector}']"
+                    element = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+                    strategy_used = f"{attr} attribute '{truncate_text(text_or_selector, 50)}'"
+                    logger.debug(f"Found element using {attr}: {text_or_selector}")
+                    break
+                except TimeoutException:
+                    continue
+        
+        if not element:
+            raise ElementNotFoundError(
+                f"Could not find clickable element with text or selector: '{text_or_selector}'"
+            )
+        
+        # Scroll element into view
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+        sleep(0.3)
+        
+        # Try multiple click methods
+        click_successful = False
+        
+        # Method 1: Standard click
+        try:
+            element.click()
+            click_successful = True
+        except Exception:
+            pass
+        
+        # Method 2: JavaScript click
+        if not click_successful:
+            try:
+                driver.execute_script("arguments[0].click();", element)
+                click_successful = True
+            except Exception:
+                pass
+        
+        # Method 3: Actions click
+        if not click_successful:
+            try:
+                from selenium.webdriver.common.action_chains import ActionChains
+                ActionChains(driver).move_to_element(element).click().perform()
+                click_successful = True
+            except Exception:
+                pass
+        
+        if not click_successful:
+            raise ElementNotFoundError(f"Found element but could not click it: '{text_or_selector}'")
+        
+        elapsed = time.time() - start_time
+        elapsed_str = format_time_elapsed(elapsed)
+        
+        result = f"Successfully clicked element using {strategy_used} ({elapsed_str})"
+        logger.info(result)
+        return result
+        
+    except ElementNotFoundError:
+        raise
+    except Exception as e:
+        error_msg = format_error_message(e, f"clicking on '{text_or_selector}'")
+        logger.error(error_msg)
+        raise ElementNotFoundError(error_msg)
         driver = get_driver()
         wait = WebDriverWait(driver, timeout)
         
@@ -812,28 +931,31 @@ def navigate_to_url(url: str, wait_for_load: bool = True, timeout: int = 30) -> 
     """
     try:
         driver = get_driver()
-        
-        # Ensure URL has protocol
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-            logger.info(f"Added https:// protocol to URL: {url}")
+
+        # Normalize URL before opening a tab
+        target_url = url.strip()
+        if not target_url.startswith(('http://', 'https://')):
+            target_url = 'https://' + target_url
+            logger.info(f"Added https:// protocol to URL: {target_url}")
         
         # Validate URL
-        is_valid, error = validate_url(url)
+        is_valid, error = validate_url(target_url)
         if not is_valid:
             raise NavigationError(f"Invalid URL: {error}")
         
         # Check security config
         config = load_config()
-        parsed_url = urlparse(url)
+        parsed_url = urlparse(target_url)
         domain = parsed_url.netloc.lower()
         
         if any(blocked in domain for blocked in config.security.blocked_domains):
             raise NavigationError(f"Domain {domain} is blocked by security policy")
         
-        # Navigate to URL
-        logger.info(f"Navigating to: {url}")
-        driver.get(url)
+        # Open the URL in a new tab and switch to it
+        logger.info(f"Opening new tab for navigation: {target_url}")
+        driver.execute_script("window.open(arguments[0], '_blank');", target_url)
+        driver.switch_to.window(driver.window_handles[-1])
+        logger.debug("Switched to new tab for navigation")
         
         # Wait for page load if requested
         if wait_for_load:
@@ -858,7 +980,7 @@ def navigate_to_url(url: str, wait_for_load: bool = True, timeout: int = 30) -> 
     except NavigationError:
         raise
     except Exception as e:
-        raise NavigationError(f"Failed to navigate to {url}: {str(e)}")
+        raise NavigationError(f"Failed to navigate to {target_url}: {str(e)}")
 
 
 def get_interactive_elements() -> List[dict]:

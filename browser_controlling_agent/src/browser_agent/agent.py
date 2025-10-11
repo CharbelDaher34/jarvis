@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
+import os
+import logging
 
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -24,19 +26,25 @@ from src.browser_agent.tools import (
 )
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
-import logging
+
+from src.browser_agent.config import load_config
+from src.browser_agent.utils import (
+    configure_logger,
+    beautify_plan_message,
+    truncate_text,
+    format_time_elapsed
+)
+
+# Setup logging
+configure_logger()
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class BrowserDeps:
+    """Dependencies for browser agent tasks."""
     prompt: str = ""
     headless: bool = False
-
-
-# Import configuration system
-from src.browser_agent.config import load_config
-
-logger = logging.getLogger(__name__)
     # --- Tool definitions ----------------------------------------------------
 
 
@@ -140,13 +148,33 @@ browser_agent = Agent[BrowserDeps, str](
 
 @browser_agent.tool
 async def tool_go_to(ctx: RunContext[BrowserDeps], url: str) -> str:
-    """Navigate to a specific URL with proper page load handling."""
+    """Navigate to a specific URL in a new tab with proper page load handling."""
+    import time
+    start_time = time.time()
+    
     try:
-        logger.info("Navigating to %s", url)
+        logger.info(f"Opening new tab and navigating to {truncate_text(url, 80)}")
+        
+        # Open a new tab first
+        driver = get_driver()
+        if driver:
+            # Open new tab
+            driver.execute_script("window.open('about:blank', '_blank');")
+            driver.switch_to.window(driver.window_handles[-1])
+            logger.debug("Opened new tab for navigation")
+        
+        # Then navigate to the URL
         result = navigate_to_url(url, wait_for_load=True, timeout=30)
-        return result
+        
+        elapsed = time.time() - start_time
+        elapsed_str = format_time_elapsed(elapsed)
+        logger.info(f"Navigation to new tab completed in {elapsed_str}")
+        
+        return f"Opened new tab and navigated to {url} ({elapsed_str})"
     except Exception as e:
-        return f"Failed to navigate to {url}: {str(e)}"
+        error_msg = f"Failed to navigate to {url} in new tab: {str(e)}"
+        logger.error(error_msg)
+        return error_msg
 
 
 @browser_agent.tool
@@ -174,6 +202,14 @@ async def tool_scroll_down(ctx: RunContext[BrowserDeps], num_pixels: int = 1200)
 async def tool_get_page_text(ctx: RunContext[BrowserDeps]) -> str:
     """Get the visible text content of the current page."""
     try:
+        text = get_page_text()
+        truncated = truncate_text(text, 500)
+        logger.info(f"Retrieved page text ({len(text)} characters): {truncated}")
+        return text
+    except Exception as e:
+        error_msg = f"Failed to get page text: {str(e)}"
+        logger.error(error_msg)
+        return error_msg
         body_text = get_page_text(include_alt_text=True)
         # Truncate if too long to avoid overwhelming the model
         if len(body_text) > 5000:

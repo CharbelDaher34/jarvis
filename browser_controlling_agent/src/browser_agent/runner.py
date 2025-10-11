@@ -12,8 +12,16 @@ from selenium import webdriver
 from src.browser_agent.agent import BrowserDeps, run_with_screenshot
 from src.browser_agent.config import load_config
 from src.browser_agent.error_handling import BrowserConnectionError, safe_execute
+from src.browser_agent.utils import (
+    configure_logger, 
+    NotificationManager, 
+    MessageType, 
+    TaskStatus,
+    format_time_elapsed
+)
 
-# Setup logging
+# Setup logging with enhanced configuration
+configure_logger()
 logger = logging.getLogger(__name__)
 
 
@@ -27,26 +35,101 @@ class BrowserSession:
         self._owns_browser = False
         self._task_handle: Optional[str] = None
         self._record_video = record_video
-        self._video_dir = video_dir or str(Path.cwd() / "videos")
         self._screenshots_dir: Optional[str] = None
         self._take_screenshots = False
+        self._status = TaskStatus.PENDING
+        
+        # Initialize notification manager
+        self.notification_manager = NotificationManager()
+        
+        # Set video directory with proper path handling and creation
+        self.set_video_dir(video_dir)
+    
+    def set_video_dir(self, video_dir: Optional[str] = None) -> None:
+        """Set video directory, creating it if it doesn't exist."""
+        if not video_dir:
+            video_dir = str(Path.cwd() / "videos")
+        
+        # Ensure the path is absolute
+        video_dir = str(Path(video_dir).resolve())
+        
+        # Create directory if it doesn't exist
+        Path(video_dir).mkdir(parents=True, exist_ok=True)
+        
+        self._video_dir = video_dir
+        logger.debug(f"Video directory set to: {video_dir}")
+    
+    def get_video_dir(self) -> str:
+        """Get the video directory path."""
+        return self._video_dir
+    
+    def set_video_recording(self, record_video: bool) -> None:
+        """Enable or disable video recording."""
+        self._record_video = record_video
+        logger.debug(f"Video recording {'enabled' if record_video else 'disabled'}")
+    
+    def get_video_recording(self) -> bool:
+        """Check if video recording is enabled."""
+        return self._record_video
 
+    def set_screenshots_dir(self, screenshots_dir: str) -> None:
+        """
+        Set the directory for saving screenshots, creating it if it doesn't exist.
+        
+        Args:
+            screenshots_dir (str): Path to the screenshots directory
+        """
+        if not screenshots_dir:
+            # If no directory specified, create a 'screenshots' directory in current working directory
+            screenshots_dir = str(Path.cwd() / "screenshots")
+        
+        # Ensure the path is absolute
+        screenshots_dir = str(Path(screenshots_dir).resolve())
+        
+        # Create the directory if it doesn't exist
+        Path(screenshots_dir).mkdir(parents=True, exist_ok=True)
+        
+        self._screenshots_dir = screenshots_dir
+        logger.debug(f"Screenshots directory set to: {screenshots_dir}")
+    
+    def get_screenshots_dir(self) -> Optional[str]:
+        """Get the screenshots directory path."""
+        return self._screenshots_dir
+    
+    def set_take_screenshots(self, take_screenshots: bool) -> None:
+        """Enable or disable screenshot taking."""
+        self._take_screenshots = take_screenshots
+        logger.debug(f"Screenshot taking {'enabled' if take_screenshots else 'disabled'}")
+    
+    def get_take_screenshots(self) -> bool:
+        """Check if screenshot taking is enabled."""
+        return self._take_screenshots
+    
     def enable_screenshots(self, screenshots_dir: str) -> None:
         """Enable screenshot taking and set directory."""
-        self._take_screenshots = True
-        self._screenshots_dir = screenshots_dir
-        Path(screenshots_dir).mkdir(parents=True, exist_ok=True)
+        self.set_take_screenshots(True)
+        self.set_screenshots_dir(screenshots_dir)
         logger.info(f"Screenshots enabled in directory: {screenshots_dir}")
 
     def start(self) -> None:
+        """Start the browser session."""
+        self._status = TaskStatus.RUNNING
+        self.notification_manager.notify("Starting browser session", MessageType.INFO.value)
         _, started_new = _start_browser(self.headless)
         self._active = True
         self._owns_browser = started_new
+        self.notification_manager.notify("Browser session started", MessageType.SUCCESS.value)
 
     def keep_open(self) -> None:
         self._keep_open = True
 
     def close(self, force: bool = False) -> None:
+        """
+        Close browser session with proper cleanup.
+        
+        Args:
+            force: Force close even if keep_open flag is set
+        """
         should_cleanup = force or not self._keep_open
 
         if should_cleanup and self._task_handle:
@@ -55,10 +138,26 @@ class BrowserSession:
 
         if self._active and should_cleanup:
             if self._owns_browser:
+                self.notification_manager.notify("Closing browser", MessageType.INFO.value)
                 _stop_browser()
             else:
                 logger.info("Leaving shared browser session running")
         self._active = False
+        
+    def get_current_url(self) -> Optional[str]:
+        """
+        Get the current URL of the active browser page.
+        
+        Returns:
+            Current URL or None if unable to access
+        """
+        try:
+            driver = helium.get_driver()
+            if driver:
+                return driver.current_url
+        except Exception as e:
+            logger.debug(f"Unable to get current URL: {e}")
+        return None
 
     def open_task_tab(self) -> None:
         handle = _open_new_tab()
@@ -67,25 +166,40 @@ class BrowserSession:
         else:
             logger.warning("Unable to open dedicated task tab; continuing in current tab")
 
-    def take_screenshot(self, name: str, page_title: Optional[str] = None) -> Optional[str]:
-        """Take a screenshot and save it to the screenshots directory."""
+    def take_screenshot(self, name: str, page_title: Optional[str] = None, include_timestamp: bool = True) -> Optional[str]:
+        """
+        Take a screenshot and save it to the screenshots directory.
+        
+        Args:
+            name: Base name for the screenshot file
+            page_title: Optional page title (not used in Selenium implementation)
+            include_timestamp: Whether to include timestamp in filename
+            
+        Returns:
+            Path to saved screenshot or None if screenshots disabled
+        """
         if not self._take_screenshots or not self._screenshots_dir:
             return None
         
         try:
-            from datetime import datetime
             driver = helium.get_driver()
             
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{name}_{timestamp}.png"
-            filepath = Path(self._screenshots_dir) / filename
+            # Build filename with optional timestamp
+            screenshot_name = name
+            if include_timestamp:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                screenshot_name = f"{timestamp}_{screenshot_name}"
+            screenshot_name += ".png"
+            
+            # Use Path for proper path handling
+            filepath = Path(self._screenshots_dir) / screenshot_name
             
             driver.save_screenshot(str(filepath))
             logger.info(f"Screenshot saved: {filepath}")
             
             return str(filepath)
         except Exception as e:
-            logger.warning(f"Failed to take screenshot '{name}': {e}")
+            logger.error(f"Failed to take screenshot '{name}': {e}")
             return None
 
 
@@ -115,7 +229,12 @@ def _configure_driver(driver: webdriver.Chrome) -> None:
 
 
 def _start_browser(headless: bool) -> Tuple[Optional[webdriver.Chrome], bool]:
-    """Start Chrome browser with enhanced configuration and error handling."""
+    """
+    Start Chrome browser with enhanced configuration and error handling.
+    
+    Returns:
+        Tuple of (driver, started_new_browser)
+    """
     try:
         existing_driver = _get_existing_driver()
         if existing_driver:
@@ -153,23 +272,25 @@ def _start_browser(headless: bool) -> Tuple[Optional[webdriver.Chrome], bool]:
         chrome_options.add_argument("--disable-default-apps")
         chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")  # Hide automation
+        chrome_options.add_argument("--disable-session-crashed-bubble")  # Disable restore session bubble
+        chrome_options.add_argument("--disable-infobars")  # Disable informational popups
         
         # Experimental options to make browser less detectable
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         
         # Optional: Disable images for faster loading
-        if config.browser.disable_images:
+        if hasattr(config.browser, 'disable_images') and config.browser.disable_images:
             prefs = {"profile.managed_default_content_settings.images": 2}
             chrome_options.add_experimental_option("prefs", prefs)
             logger.info("Images disabled for faster loading")
         
         # Optional: Custom user agent
-        if config.browser.user_agent:
+        if hasattr(config.browser, 'user_agent') and config.browser.user_agent:
             chrome_options.add_argument(f"--user-agent={config.browser.user_agent}")
         
         # Optional: Download directory
-        if config.browser.download_directory:
+        if hasattr(config.browser, 'download_directory') and config.browser.download_directory:
             prefs = {
                 "download.default_directory": config.browser.download_directory,
                 "download.prompt_for_download": False,
@@ -177,6 +298,7 @@ def _start_browser(headless: bool) -> Tuple[Optional[webdriver.Chrome], bool]:
                 "safebrowsing.enabled": False
             }
             chrome_options.add_experimental_option("prefs", prefs)
+            logger.info(f"Download directory set to: {config.browser.download_directory}")
         
         # Start browser with error handling
         def start_chrome():
@@ -193,10 +315,20 @@ def _start_browser(headless: bool) -> Tuple[Optional[webdriver.Chrome], bool]:
             _configure_driver(driver)
             
             # Remove webdriver flag to make browser less detectable
-            driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-                "userAgent": driver.execute_script("return navigator.userAgent").replace('Headless', '')
-            })
-            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            try:
+                driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+                    "userAgent": driver.execute_script("return navigator.userAgent").replace('Headless', '')
+                })
+                driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            except Exception as e:
+                logger.debug(f"Could not apply stealth settings: {e}")
+            
+            # Navigate to Google as the default homepage
+            try:
+                driver.get("https://www.google.com")
+                logger.info("Browser opened at https://www.google.com")
+            except Exception as e:
+                logger.warning(f"Could not navigate to Google homepage: {e}")
             
             logger.info("Chrome browser started successfully")
         except Exception as e:
@@ -232,6 +364,12 @@ def _open_new_tab() -> Optional[str]:
 
 
 def _close_owned_tab(handle: str) -> None:
+    """
+    Close a specific browser tab by handle.
+    
+    Args:
+        handle: Window handle of the tab to close
+    """
     try:
         driver = helium.get_driver()
     except Exception as exc:
@@ -248,6 +386,7 @@ def _close_owned_tab(handle: str) -> None:
             remaining = driver.window_handles
             if remaining:
                 driver.switch_to.window(remaining[0])
+            logger.debug(f"Closed tab with handle {handle}")
     except Exception as exc:
         logger.warning(f"Unable to close task tab {handle}: {exc}")
 
@@ -311,7 +450,9 @@ async def run_task(
     headless: bool = False,
     record_video: bool = False,
     video_dir: Optional[str] = None,
-    screenshots_dir: Optional[str] = None
+    screenshots_dir: Optional[str] = None,
+    starting_url: Optional[str] = None,
+    notification_callback: Optional[callable] = None
 ) -> str:
     """
     Run a browser automation task with enhanced error handling.
@@ -322,6 +463,8 @@ async def run_task(
         record_video: Whether to record video of the session (not implemented)
         video_dir: Directory to save video recordings (not implemented)
         screenshots_dir: Directory to save screenshots
+        starting_url: Optional initial URL to navigate to before starting task
+        notification_callback: Optional callback for task progress notifications
         
     Returns:
         Task result output
@@ -330,7 +473,17 @@ async def run_task(
     logger.info("Starting Browser Automation Task")
     logger.info("="*60)
     
+    # Enhance prompt with starting URL if provided
+    if starting_url:
+        prompt = f"First, navigate to {starting_url}. Then, {prompt}"
+        logger.info(f"Task will start at URL: {starting_url}")
+    
     session = BrowserSession(headless, record_video=record_video, video_dir=video_dir)
+    
+    # Register notification callback if provided
+    if notification_callback:
+        session.notification_manager.register_listener(notification_callback)
+    
     result: Optional[str] = None
     start_time = datetime.now()
     
@@ -341,35 +494,43 @@ async def run_task(
     try:
         # Step 1: Initialize browser
         logger.info("🔄 Initializing browser...")
+        session.notification_manager.notify("Initializing browser...", MessageType.STEP.value)
         session.start()
         logger.info("✅ Browser started")
         
         # Step 2: Configure session
         logger.info("🔄 Configuring browser session...")
+        session.notification_manager.notify("Configuring browser session...", MessageType.STEP.value)
         session.open_task_tab()
-        if screenshots_dir:
-            session.take_screenshot("task_start")
+        screenshot_path = session.take_screenshot("task_start")
+        if screenshot_path:
+            logger.debug(f"Task start screenshot: {screenshot_path}")
         logger.info("✅ Session configured")
 
         # Step 3: Execute task
-        logger.info(f"🔄 Running task: {prompt[:50]}...")
-        if screenshots_dir:
-            session.take_screenshot("before_execution")
+        logger.info(f"🔄 Running task: {prompt[:100]}...")
+        session.notification_manager.notify(f"Executing task: {prompt[:50]}...", MessageType.STEP.value)
+        session.take_screenshot("before_execution")
         
         result = await run_with_screenshot(prompt, deps=BrowserDeps(headless=headless))
         
-        if screenshots_dir:
-            session.take_screenshot("after_execution")
+        session.take_screenshot("after_execution")
 
         if result:
             logger.info("✅ Task completed successfully")
+            session.notification_manager.notify("Task completed successfully", MessageType.SUCCESS.value)
         else:
             logger.warning("⚠️  Task completed but returned no output")
+            session.notification_manager.notify("Task completed with no output", MessageType.WARNING.value)
 
         # Step 4: Cleanup
         logger.info("🔄 Cleaning up browser session...")
-        if screenshots_dir:
-            session.take_screenshot("task_complete")
+        session.take_screenshot("task_complete")
+        
+        # Log final URL
+        final_url = session.get_current_url()
+        if final_url:
+            logger.info(f"Final URL: {final_url}")
         
         if _should_keep_browser_open(headless):
             session.keep_open()
@@ -380,8 +541,9 @@ async def run_task(
 
         # Print summary
         elapsed = (datetime.now() - start_time).total_seconds()
+        elapsed_str = format_time_elapsed(elapsed)
         logger.info("="*60)
-        logger.info(f"✅ Task completed in {elapsed:.1f}s")
+        logger.info(f"✅ Task completed in {elapsed_str}")
         logger.info("="*60)
 
         if result:
@@ -390,24 +552,40 @@ async def run_task(
             print(f"{'='*60}")
             print(result)
             print(f"{'='*60}")
+            print(f"⏱️  Duration: {elapsed_str}")
             
             if screenshots_dir:
-                print(f"\n📸 Screenshots saved to: {screenshots_dir}")
+                print(f"📸 Screenshots saved to: {screenshots_dir}")
+            if final_url:
+                print(f"🌐 Final URL: {final_url}")
+        
+        session.notification_manager.notify(
+            f"Task completed in {elapsed_str}", 
+            MessageType.DONE.value
+        )
 
         return result or "Task completed but no output generated"
 
+    except KeyboardInterrupt:
+        logger.warning("⚠️  Task interrupted by user")
+        session.notification_manager.notify("Task interrupted by user", MessageType.WARNING.value)
+        session.take_screenshot("interrupted")
+        session.close(force=True)
+        raise
     except Exception as e:
         logger.error(f"❌ Task execution failed: {e}")
+        session.notification_manager.notify(f"Task failed: {str(e)}", MessageType.ERROR.value)
         
         # Take error screenshot
-        if screenshots_dir:
-            session.take_screenshot("error_state")
+        session.take_screenshot("error_state")
         
         session.close(force=True)
         raise
 
     finally:
-        session.close(force=False)
+        # Ensure cleanup happens
+        if session._active:
+            session.close(force=False)
 
 
 async def run_task_with_context(
@@ -419,6 +597,8 @@ async def run_task_with_context(
     """
     Run a browser automation task with an optional starting URL.
     
+    This is a convenience wrapper around run_task that maintains backward compatibility.
+    
     Args:
         prompt: Task description for the agent
         starting_url: Initial URL to navigate to before starting task
@@ -428,10 +608,32 @@ async def run_task_with_context(
     Returns:
         Task result output
     """
-    # If starting URL provided, prepend navigation instruction
-    if starting_url:
-        enhanced_prompt = f"First, navigate to {starting_url}. Then, {prompt}"
-        logger.info(f"Enhanced prompt with starting URL: {starting_url}")
-        return await run_task(enhanced_prompt, headless=headless, **kwargs)
-    else:
-        return await run_task(prompt, headless=headless, **kwargs)
+    return await run_task(
+        prompt=prompt,
+        starting_url=starting_url,
+        headless=headless,
+        **kwargs
+    )
+
+
+def navigate_to_url(url: str) -> None:
+    """
+    Navigate to a specific URL in the current browser session.
+    
+    Args:
+        url: URL to navigate to (protocol will be added if missing)
+    """
+    try:
+        # Add URL protocol if missing
+        if not url.startswith(('http://', 'https://')):
+            url = f"https://{url}"
+        
+        driver = helium.get_driver()
+        if driver:
+            driver.get(url)
+            logger.info(f"Successfully navigated to {url}")
+        else:
+            logger.error("No active browser driver available")
+    except Exception as e:
+        logger.error(f"Failed to navigate to {url}: {e}")
+        raise
