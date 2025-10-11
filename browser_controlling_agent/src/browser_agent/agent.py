@@ -9,14 +9,18 @@ from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.models.google import GoogleModel, GoogleModelSettings
 
 from src.browser_agent.tools import (
-    search_item_ctrl_f,
     go_back,
     close_popups,
     capture_screenshot,
     get_driver,
-    google_search,
-    wait_for_element,
     smart_click,
+    navigate_to_url,
+    enter_text_and_click,
+    scroll_page,
+    get_page_text,
+    get_page_info,
+    get_interactive_elements,
+    press_key_combination,
 )
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
@@ -93,16 +97,30 @@ def create_model():
 model = create_model()
 
 AGENT_INSTRUCTIONS = (
-    "You are a web browsing assistant. Use tools to navigate and interact with web pages. "
-    "You can perform Google searches to find relevant URLs using tool_google_search. "
-    "After clicking or navigation, always take a screenshot to observe the current state. "
-    "Never attempt to log in to websites. "
-    "Use helium commands for navigation: go_to(url), click('text'), scroll_down(num_pixels=1200), etc. "
-    "When you encounter popups, use the close_popups tool rather than trying to click 'X' buttons. "
-    "Use .exists() to check if elements exist before interacting with them. "
-    "For example: if Text('Accept cookies?').exists(): click('I accept') "
-    "Stop after each action to observe the results via screenshot. "
-    "When searching for information, first use tool_google_search to find relevant URLs, then navigate to them."
+    "You are a web browsing assistant with advanced tools for navigating and interacting with web pages.\n\n"
+    "KEY CAPABILITIES:\n"
+    "1. Navigation: Use tool_go_to(url) for reliable page loading\n"
+    "2. Clicking: Use tool_smart_click(target) which tries multiple strategies to find elements\n"
+    "3. Search: Use tool_enter_text_and_click for search boxes - provide input selector and button selector\n"
+    "4. Forms: Use tool_fill_form(field_name, value) to fill form fields\n"
+    "5. Discovery: Use tool_get_interactive_elements() to see all clickable elements on a page\n"
+    "6. Text Analysis: Use tool_get_page_text() to understand page content\n\n"
+    "SEARCH BOX STRATEGY:\n"
+    "When you need to use a search box:\n"
+    "1. First use tool_get_interactive_elements() to find available inputs and buttons\n"
+    "2. Look for search input selectors like: input[type='search'], input[name='q'], #search\n"
+    "3. Use tool_enter_text_and_click(input_selector, search_query, button_selector)\n"
+    "4. If no button selector is provided, it will press Enter automatically\n\n"
+    "ELEMENT FINDING:\n"
+    "- CSS selectors are most reliable: 'input[type=\"search\"]', '#search-box', '.search-button'\n"
+    "- You can also use visible text: 'Search', 'Submit', 'Sign in'\n"
+    "- If unsure, use tool_get_interactive_elements() first to see what's available\n\n"
+    "BEST PRACTICES:\n"
+    "- Use tool_close_popups() immediately when you see popups or modals\n"
+    "- Use tool_handle_cookies('accept') for cookie consent banners\n"
+    "- Never attempt to log in to websites\n"
+    "- Take one action at a time and observe results\n"
+    "- For web searches, use tool_enhanced_search(query) to find URLs, then navigate to them\n"
 )
 
 browser_agent = Agent[BrowserDeps, str](
@@ -113,65 +131,31 @@ browser_agent = Agent[BrowserDeps, str](
 )
 
 
-@browser_agent.tool
-async def tool_execute_python(ctx: RunContext[BrowserDeps], code: str) -> str:
-    """Execute Python code for web automation. Helium is available."""
-    try:
-        # Import helium for the execution
-        import helium
-        
-        # Create a safe execution environment with helium functions
-        exec_globals = {
-            'helium': helium,
-            'go_to': helium.go_to,
-            'click': helium.click,
-            'scroll_down': helium.scroll_down,
-            'scroll_up': helium.scroll_up,
-            'Text': helium.Text,
-            'Link': helium.Link,
-            'Button': helium.Button,
-            'write': helium.write,
-            'press': helium.press,
-            '__builtins__': __builtins__,
-        }
-        
-        # Execute the code
-        exec(code, exec_globals)
-        return f"Successfully executed: {code}"
-    except Exception as e:
-        return f"Error executing code '{code}': {str(e)}"
+# @browser_agent.tool
+# async def tool_execute_python(ctx: RunContext[BrowserDeps], code: str) -> str:
+#     """Execute Python code for web automation. Helium is available."""
+#     # Disabled in favor of more reliable dedicated tools
+#     return "tool_execute_python is disabled. Please use dedicated tools like tool_click, tool_enter_text_and_click, etc."
 
 
 @browser_agent.tool
 async def tool_go_to(ctx: RunContext[BrowserDeps], url: str) -> str:
-    """Navigate to a specific URL."""
+    """Navigate to a specific URL with proper page load handling."""
     try:
-        import helium
-        try:
-            driver = get_driver()
-        except Exception as exc:
-            logger.debug("Unable to acquire driver before opening new tab: %s", exc)
-            driver = None
-        if driver:
-            try:
-                driver.switch_to.new_window("tab")
-            except Exception:
-                driver.execute_script("window.open('about:blank', '_blank');")
-                driver.switch_to.window(driver.window_handles[-1])
         logger.info("Navigating to %s", url)
-        helium.go_to(url)
-        return f"Successfully navigated to {url}"
+        result = navigate_to_url(url, wait_for_load=True, timeout=30)
+        return result
     except Exception as e:
         return f"Failed to navigate to {url}: {str(e)}"
 
 
 @browser_agent.tool
 async def tool_click(ctx: RunContext[BrowserDeps], text: str) -> str:
-    """Click on an element with the given text."""
+    """Click on an element with the given text using intelligent detection."""
     try:
-        import helium
-        helium.click(text)
-        return f"Successfully clicked on '{text}'"
+        logger.info("Attempting to click on '%s'", text)
+        result = smart_click(text, timeout=10)
+        return result
     except Exception as e:
         return f"Failed to click on '{text}': {str(e)}"
 
@@ -180,9 +164,8 @@ async def tool_click(ctx: RunContext[BrowserDeps], text: str) -> str:
 async def tool_scroll_down(ctx: RunContext[BrowserDeps], num_pixels: int = 1200) -> str:
     """Scroll down by the specified number of pixels."""
     try:
-        import helium
-        helium.scroll_down(num_pixels=num_pixels)
-        return f"Successfully scrolled down {num_pixels} pixels"
+        result = scroll_page(direction="down", amount=num_pixels)
+        return result
     except Exception as e:
         return f"Failed to scroll down: {str(e)}"
 
@@ -191,9 +174,7 @@ async def tool_scroll_down(ctx: RunContext[BrowserDeps], num_pixels: int = 1200)
 async def tool_get_page_text(ctx: RunContext[BrowserDeps]) -> str:
     """Get the visible text content of the current page."""
     try:
-        driver = get_driver()
-        # Get the page text content
-        body_text = driver.find_element(By.TAG_NAME, "body").text
+        body_text = get_page_text(include_alt_text=True)
         # Truncate if too long to avoid overwhelming the model
         if len(body_text) > 5000:
             body_text = body_text[:5000] + "... (content truncated)"
@@ -263,18 +244,7 @@ async def tool_enhanced_search(
         return result_text
         
     except Exception as e:
-        # Fallback to original google search
-        try:
-            urls = google_search(query, num_results)
-            if not urls:
-                return f"No search results found for query: '{query}'"
-            
-            result = f"Found {len(urls)} search results for '{query}' (fallback):\n"
-            for idx, url in enumerate(urls, 1):
-                result += f"{idx}. {url}\n"
-            return result
-        except Exception as fallback_error:
-            return f"Search failed: {str(e)}. Fallback also failed: {str(fallback_error)}"
+        return f"Search failed: {str(e)}. Try using tool_go_to with a specific URL instead."
 
 
 @browser_agent.tool
@@ -321,12 +291,6 @@ async def tool_multi_engine_search(ctx: RunContext[BrowserDeps], query: str, num
 
 
 @browser_agent.tool
-async def tool_search_item_ctrl_f(_: RunContext[BrowserDeps], text: str, nth_result: int = 1) -> str:
-    """Search for text on the current page via Ctrl+F-like contains search and focus the nth occurrence."""
-    return search_item_ctrl_f(text=text, nth_result=nth_result)
-
-
-@browser_agent.tool
 async def tool_go_back(_: RunContext[BrowserDeps]) -> str:
     """Go back to previous page."""
     return go_back()
@@ -363,24 +327,6 @@ async def tool_fill_form(ctx: RunContext[BrowserDeps], field_name: str, value: s
         value: Value to enter in the field
     """
     try:
-        import helium
-        
-        # Try multiple strategies to find and fill the field
-        strategies = [
-            lambda: helium.write(value, into=field_name),
-            lambda: helium.write(value, into=helium.TextField(field_name)),
-        ]
-        
-        for strategy in strategies:
-            try:
-                strategy()
-                return f"Successfully filled field '{field_name}' with value '{value}'"
-            except Exception as e:
-                logger.debug(f"Form fill strategy failed: {e}")
-        
-        # Fallback to Selenium
-        driver = get_driver()
-        
         # Try to find field by multiple attributes
         selectors = [
             f"input[name='{field_name}']",
@@ -388,16 +334,18 @@ async def tool_fill_form(ctx: RunContext[BrowserDeps], field_name: str, value: s
             f"input[placeholder*='{field_name}']",
             f"textarea[name='{field_name}']",
             f"textarea[id='{field_name}']",
+            f"#{field_name}",  # Try as direct ID
+            f"[name='{field_name}']",  # Any element with this name
         ]
         
+        driver = get_driver()
         for selector in selectors:
             try:
                 elements = driver.find_elements(By.CSS_SELECTOR, selector)
                 if elements and elements[0].is_displayed():
-                    element = elements[0]
-                    element.clear()
-                    element.send_keys(value)
-                    return f"Successfully filled field '{field_name}' using selector '{selector}'"
+                    # Use enter_text_and_click without click selector to just enter text
+                    result = enter_text_and_click(selector, value, click_selector=None)
+                    return result
             except Exception as e:
                 logger.debug(f"Selector '{selector}' failed: {e}")
         
@@ -475,19 +423,24 @@ async def tool_wait_for_element(ctx: RunContext[BrowserDeps], element_descriptio
         timeout: Maximum time to wait in seconds
     """
     try:
-        # Convert description to locator
-        locators_to_try = [
-            (By.CSS_SELECTOR, element_description),
-            (By.XPATH, f"//*[contains(text(), '{element_description}')]"),
-            (By.ID, element_description),
-            (By.NAME, element_description),
-        ]
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.common.exceptions import TimeoutException
         
-        for locator in locators_to_try:
-            if wait_for_element(locator, timeout, condition):
-                return f"Element '{element_description}' is now {condition} (found using {locator[0]})"
+        driver = get_driver()
+        wait = WebDriverWait(driver, timeout)
         
-        return f"Element '{element_description}' did not meet condition '{condition}' within {timeout} seconds"
+        # Try as CSS selector first
+        try:
+            if condition == "presence":
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, element_description)))
+            elif condition == "visible":
+                wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, element_description)))
+            else:  # clickable
+                wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, element_description)))
+            return f"Element '{element_description}' is now {condition}"
+        except TimeoutException:
+            return f"Element '{element_description}' did not meet condition '{condition}' within {timeout} seconds"
         
     except Exception as e:
         return f"Wait for element error: {str(e)}"
@@ -570,71 +523,6 @@ async def tool_get_page_info(ctx: RunContext[BrowserDeps]) -> str:
 
 
 @browser_agent.tool
-async def tool_get_performance_info(ctx: RunContext[BrowserDeps]) -> str:
-    """Get current performance and resource usage information."""
-    try:
-        from src.browser_agent.performance import get_performance_report
-        
-        report = get_performance_report()
-        
-        result = "🔧 Performance Report:\n\n"
-        
-        # System performance
-        if report["performance"]["current"]:
-            current = report["performance"]["current"]
-            result += f"**Current System Usage:**\n"
-            result += f"  • CPU: {current['cpu_percent']:.1f}%\n"
-            result += f"  • Memory: {current['memory_mb']:.1f}MB\n"
-            if current['browser_memory_mb']:
-                result += f"  • Browser Memory: {current['browser_memory_mb']:.1f}MB\n"
-        
-        # Average performance
-        if report["performance"]["average_5min"]:
-            avg = report["performance"]["average_5min"]
-            result += f"\n**5-Minute Average:**\n"
-            result += f"  • CPU: {avg['cpu_percent']:.1f}%\n"
-            result += f"  • Memory: {avg['memory_mb']:.1f}MB\n"
-            if avg['browser_memory_mb']:
-                result += f"  • Browser Memory: {avg['browser_memory_mb']:.1f}MB\n"
-        
-        # Browser tabs
-        tabs = report["tabs"]
-        result += f"\n**Browser Session:**\n"
-        result += f"  • Open tabs: {tabs['count']}/{tabs['max_allowed']}\n"
-        result += f"  • Tab timeout: {tabs['timeout_seconds']}s\n"
-        
-        # Resource limits
-        limits = report["performance"]["resource_limits"]
-        result += f"\n**Resource Limits:**\n"
-        result += f"  • Max Memory: {limits['max_memory_mb']}MB\n"
-        result += f"  • Max CPU: {limits['max_cpu_percent']}%\n"
-        result += f"  • Max Browser Memory: {limits['max_browser_memory_mb']}MB\n"
-        
-        return result
-        
-    except Exception as e:
-        return f"Failed to get performance info: {str(e)}"
-
-
-@browser_agent.tool
-async def tool_cleanup_resources(ctx: RunContext[BrowserDeps]) -> str:
-    """Force cleanup of browser resources and memory."""
-    try:
-        from src.browser_agent.performance import resource_manager, session_manager
-        
-        # Clean up tabs
-        session_manager.cleanup_all_tabs()
-        
-        # Force resource cleanup
-        resource_manager.force_cleanup()
-        
-        return "🧹 Resource cleanup completed: cleared browser cache, closed old tabs, and freed memory"
-        
-    except Exception as e:
-        return f"Resource cleanup failed: {str(e)}"
-
-
-@browser_agent.tool
 async def tool_handle_cookies(ctx: RunContext[BrowserDeps], action: str = "accept") -> str:
     """
     Handle cookie consent banners and notifications.
@@ -705,21 +593,154 @@ async def tool_handle_cookies(ctx: RunContext[BrowserDeps], action: str = "accep
         return f"Cookie handling error: {str(e)}"
 
 
+@browser_agent.tool
+async def tool_enter_text_and_click(
+    ctx: RunContext[BrowserDeps],
+    text_selector: str,
+    text: str,
+    click_selector: Optional[str] = None
+) -> str:
+    """
+    Enter text into a field and then click a button (or press Enter if no button specified).
+    Useful for search boxes and forms.
+    
+    Args:
+        text_selector: CSS selector for the text input field (e.g., 'input[type="search"]', '#search-box')
+        text: Text to enter
+        click_selector: CSS selector for button to click (if None, presses Enter)
+    """
+    try:
+        result = enter_text_and_click(text_selector, text, click_selector, wait_before_click=0.5)
+        return result
+    except Exception as e:
+        return f"Enter text and click failed: {str(e)}"
+
+
+@browser_agent.tool
+async def tool_press_key(ctx: RunContext[BrowserDeps], key_combination: str) -> str:
+    """
+    Press a key or key combination.
+    
+    Args:
+        key_combination: Key combination string (e.g., 'Enter', 'Control+C', 'Alt+Tab', 'Escape')
+    
+    Examples:
+        - 'Enter' - Press Enter key
+        - 'Escape' - Press Escape key
+        - 'Control+C' - Press Ctrl+C
+        - 'PageDown' - Scroll down one page
+    """
+    try:
+        result = press_key_combination(key_combination)
+        return result
+    except Exception as e:
+        return f"Key press failed: {str(e)}"
+
+
+@browser_agent.tool
+async def tool_get_interactive_elements(ctx: RunContext[BrowserDeps]) -> str:
+    """
+    Get all interactive elements (buttons, links, inputs) on the current page.
+    Useful for understanding what actions are available.
+    """
+    try:
+        elements = get_interactive_elements()
+        if not elements:
+            return "No interactive elements found on the page"
+        
+        # Format for better readability
+        result = f"Found {len(elements)} interactive elements:\n\n"
+        
+        # Group by type
+        by_type = {}
+        for elem in elements:
+            elem_type = elem.get('type', 'unknown')
+            if elem_type not in by_type:
+                by_type[elem_type] = []
+            by_type[elem_type].append(elem)
+        
+        for elem_type, elems in by_type.items():
+            result += f"\n**{elem_type.upper()}S** ({len(elems)}):\n"
+            for elem in elems[:10]:  # Limit to first 10 of each type
+                text = elem.get('text', '')
+                selector = elem.get('selector', '')
+                if text:
+                    result += f"  - {text[:50]} (selector: {selector})\n"
+                else:
+                    result += f"  - {selector}\n"
+            if len(elems) > 10:
+                result += f"  ... and {len(elems) - 10} more\n"
+        
+        return result
+    except Exception as e:
+        return f"Failed to get interactive elements: {str(e)}"
+
+
+@browser_agent.tool
+async def tool_scroll_to_top(ctx: RunContext[BrowserDeps]) -> str:
+    """Scroll to the top of the page."""
+    try:
+        result = scroll_page(direction="top")
+        return result
+    except Exception as e:
+        return f"Scroll to top failed: {str(e)}"
+
+
+@browser_agent.tool
+async def tool_scroll_to_bottom(ctx: RunContext[BrowserDeps]) -> str:
+    """Scroll to the bottom of the page."""
+    try:
+        result = scroll_page(direction="bottom")
+        return result
+    except Exception as e:
+        return f"Scroll to bottom failed: {str(e)}"
+
+
 
 
 @browser_agent.instructions
 def helium_instructions(_: RunContext[BrowserDeps]) -> str:
     return (
-        "You can use helium to access websites. The helium driver is already managed for you.\n"
-        "Available helium commands:\n"
-        "- Use go_to('url') to navigate to pages\n"
-        "- Use click('Text') to click on elements with that text\n"
-        "- Use click(Link('Text')) for links\n"
-        "- Use scroll_down(num_pixels=1200) to scroll\n"
-        "- Use .exists() to test elements, e.g.: if Text('Accept cookies?').exists(): click('I accept')\n"
-        "If an element is not found, you'll get LookupError; do one action at a time.\n"
-        "Use the close_popups tool for modal windows rather than clicking 'X'.\n"
-        "Stop your action after each button click to see what happens via screenshot.\n"
+        "You are a web browsing assistant with powerful tools for interacting with web pages.\n\n"
+        "CORE TOOLS:\n"
+        "- tool_go_to(url): Navigate to a URL with proper page load handling\n"
+        "- tool_click(text): Click on an element by its visible text or CSS selector\n"
+        "- tool_smart_click(target): Intelligent click using multiple detection strategies\n"
+        "- tool_enter_text_and_click(text_selector, text, click_selector): Enter text in a field and optionally click a button\n"
+        "- tool_fill_form(field_name, value): Fill a form field by name, ID, or placeholder\n"
+        "- tool_press_key(key_combination): Press keys like 'Enter', 'Escape', 'Control+C'\n\n"
+        "NAVIGATION & SCROLLING:\n"
+        "- tool_scroll_down(num_pixels): Scroll down by specified pixels\n"
+        "- tool_scroll_to_top(): Scroll to the top of the page\n"
+        "- tool_scroll_to_bottom(): Scroll to the bottom of the page\n"
+        "- tool_go_back(): Navigate back to previous page\n\n"
+        "INFORMATION GATHERING:\n"
+        "- tool_get_page_text(): Get all visible text from the current page\n"
+        "- tool_get_page_info(): Get page title, URL, and dimensions\n"
+        "- tool_get_interactive_elements(): List all clickable/interactive elements on the page\n\n"
+        "UTILITIES:\n"
+        "- tool_close_popups(): Close modal dialogs and popups\n"
+        "- tool_handle_cookies(action): Handle cookie consent banners ('accept', 'decline', 'close')\n"
+        "- tool_enhanced_search(query): Perform web search to find URLs\n"
+        "- tool_wait_for_element(selector, condition, timeout): Wait for an element to appear\n\n"
+        "SEARCH BOX STRATEGY (CRITICAL FOR YOUTUBE, GOOGLE, ETC.):\n"
+        "1. First, use tool_get_interactive_elements() to find available inputs\n"
+        "2. Look for search input selectors like:\n"
+        "   - input[type='search']\n"
+        "   - input[name='search']\n"
+        "   - input[placeholder*='Search']\n"
+        "   - #search-box\n"
+        "3. Use tool_enter_text_and_click(input_selector, search_query, button_selector)\n"
+        "   - If no button selector is provided, Enter key is pressed automatically\n"
+        "4. Example: tool_enter_text_and_click('input[name=\"search_query\"]', 'my song', None)\n\n"
+        "BEST PRACTICES:\n"
+        "- Always use CSS selectors for precise targeting (e.g., 'input[type=\"search\"]')\n"
+        "- Use tool_get_interactive_elements() first to discover available elements\n"
+        "- For clicking, prefer tool_smart_click which tries multiple strategies\n"
+        "- Handle popups immediately with tool_close_popups()\n"
+        "- For cookie banners, use tool_handle_cookies('accept')\n"
+        "- Never attempt to log in to websites\n"
+        "- Take one action at a time and observe results\n"
     )
 
 

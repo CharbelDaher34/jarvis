@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -15,8 +16,13 @@ from dotenv import load_dotenv
 load_dotenv()
 from src.browser_agent.runner import run_task
 from src.browser_agent.config import load_config
-from src.browser_agent.user_experience import logger
-from src.browser_agent.performance import start_performance_monitoring, stop_performance_monitoring
+
+# Setup logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 
 EXIT_COMMANDS = {"exit", "quit", "q"}
@@ -152,7 +158,7 @@ def check_configuration() -> bool:
         print(f"❌ Configuration Error: {e}")
         return False
 
-
+# 
 async def interactive_mode(headless: bool, performance: bool) -> None:
     """Run in interactive mode with a simple command loop."""
     print("🤖 Enhanced Browser Agent - Interactive Mode")
@@ -165,7 +171,7 @@ async def interactive_mode(headless: bool, performance: bool) -> None:
     print()
     
     if performance:
-        start_performance_monitoring()
+        logger.info("Performance monitoring requested (not available in simplified version)")
     
     try:
         while True:
@@ -206,8 +212,7 @@ async def interactive_mode(headless: bool, performance: bool) -> None:
                 continue
     
     finally:
-        if performance:
-            stop_performance_monitoring()
+        pass  # Cleanup handled by context managers
 
 
 def print_help() -> None:
@@ -237,37 +242,47 @@ def print_help() -> None:
 async def print_status() -> None:
     """Print current system status."""
     try:
-        from src.browser_agent.performance import get_performance_report
-        
-        report = get_performance_report()
+        import psutil
         
         print("\n📊 System Status:")
         print("-" * 30)
         
-        if report["performance"]["current"]:
-            current = report["performance"]["current"]
-            print(f"CPU Usage: {current['cpu_percent']:.1f}%")
-            print(f"Memory: {current['memory_mb']:.1f}MB")
-            if current['browser_memory_mb']:
-                print(f"Browser Memory: {current['browser_memory_mb']:.1f}MB")
+        # Basic system metrics
+        cpu_percent = psutil.cpu_percent()
+        memory = psutil.virtual_memory()
         
-        tabs = report["tabs"]
-        print(f"Browser Tabs: {tabs['count']}/{tabs['max_allowed']}")
+        print(f"CPU Usage: {cpu_percent:.1f}%")
+        print(f"Memory: {memory.used / (1024 * 1024):.1f}MB ({memory.percent:.1f}%)")
         
-        cleanup = report["cleanup"]
-        print(f"Auto Cleanup: {'Enabled' if cleanup['auto_enabled'] else 'Disabled'}")
+        # Browser process info if available
+        try:
+            browser_count = 0
+            browser_memory = 0
+            for process in psutil.process_iter(['pid', 'name', 'memory_info']):
+                if 'chrome' in process.info['name'].lower():
+                    browser_count += 1
+                    browser_memory += process.info['memory_info'].rss
+            
+            if browser_count > 0:
+                print(f"Browser Processes: {browser_count}")
+                print(f"Browser Memory: {browser_memory / (1024 * 1024):.1f}MB")
+        except:
+            pass
+        
         print()
         
+    except ImportError:
+        print("📊 Status: psutil not installed for system monitoring")
     except Exception as e:
         print(f"Could not get status: {e}")
 
 
 async def run_single_task(prompt: str, headless: bool, performance: bool) -> None:
     """Run a single automation task."""
-    logger.user_action("Starting single task execution", prompt)
+    logger.info(f"Starting single task execution: {prompt}")
     
     if performance:
-        start_performance_monitoring()
+        logger.info("Performance monitoring requested (not available in simplified version)")
     
     try:
         result = await run_task(prompt, headless=headless)
@@ -286,8 +301,7 @@ async def run_single_task(prompt: str, headless: bool, performance: bool) -> Non
         raise
     
     finally:
-        if performance:
-            stop_performance_monitoring()
+        pass  # Cleanup handled by context managers
 
 async def _dispatch(args: Args) -> int:
     """Execute the requested mode and return an exit code."""

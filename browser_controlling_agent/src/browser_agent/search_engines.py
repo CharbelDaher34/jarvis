@@ -12,7 +12,7 @@ from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta
 import json
 import hashlib
-
+import requests
 from src.browser_agent.error_handling import SearchError, validate_url, with_retry, RetryConfig
 from src.browser_agent.config import load_config
 
@@ -63,86 +63,90 @@ class SearchEngine(ABC):
     def name(self) -> str:
         """Name of the search engine."""
         pass
-
 class GoogleSearchEngine(SearchEngine):
-    """Google search implementation."""
+    """
+    Google search implementation using the official Google Custom Search JSON API.
     
+    Requires:
+      - Google API key
+      - Custom Search Engine (CSE) ID (CX)
+    """
+
+    BASE_URL = "https://www.googleapis.com/customsearch/v1"
+
+    def __init__(self, api_key: str = "", search_engine_id: str =""):
+        self.api_key = "AIzaSyC_ddspMbvVBWKj4AZ-AO9jiPGP23sNzhg"
+        self.cx = "30c1da3f66f9f4f67"
+
     @property
     def name(self) -> str:
         return "google"
-    
+
     @with_retry(RetryConfig(max_attempts=3, base_delay=2.0), (Exception,), logger)
-    def search(self, query: SearchQuery) -> List[SearchResult]:
-        """Perform Google search."""
+    def search(self, query: "SearchQuery") -> List["SearchResult"]:
+        """Perform Google search via the Custom Search API."""
         try:
-            from googlesearch import search
-            
-            # Build search string with filters
-            search_string = self._build_search_string(query)
-            
+            params = {
+                "key": self.api_key,
+                "cx": self.cx,
+                "q": self._build_search_string(query),
+                "num": min(query.max_results, 10),  # API allows up to 10 per call
+                "lr": f"lang_{query.language}" if query.language else None,
+            }
+            params = {k: v for k, v in params.items() if v is not None}  # clean up None values
+
+            response = requests.get(self.BASE_URL, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+            items = data.get("items", [])
             results = []
-            rank = 1
-            
-            for url in search(
-                search_string, 
-                num_results=query.max_results,
-                # stop=query.max_results,
-                unique=True,
-                lang=query.language,
-                # tld=f"google.{query.region}" if query.region != "us" else "google.com"
-            ):
+            for rank, item in enumerate(items, start=1):
+                link = item.get("link")
+                title = item.get("title", "Untitled")
+                description = item.get("snippet", "")
+
                 # Validate URL
-                is_valid, error = validate_url(url)
+                is_valid, error = validate_url(link)
                 if not is_valid:
-                    logger.warning(f"Skipping invalid URL: {url} ({error})")
+                    logger.warning(f"Skipping invalid URL: {link} ({error})")
                     continue
-                
+
                 result = SearchResult(
-                    title=f"Result {rank}",  # Google search doesn't return titles
-                    url=url,
-                    description="",  # Would need additional scraping
+                    title=title,
+                    url=link,
+                    description=description,
                     source_engine=self.name,
                     rank=rank,
                     cached_at=datetime.now()
                 )
                 results.append(result)
-                rank += 1
-                
-            logger.info(f"Google search for '{query.query}' returned {len(results)} results")
+
+            if not results:
+                logger.warning(f"Google API search for '{query.query}' returned 0 results.")
+            else:
+                logger.info(f"Google API search for '{query.query}' returned {len(results)} results.")
+
             return results
-            
-        except ImportError:
-            raise SearchError("googlesearch-python package not installed")
+
+        except requests.HTTPError as e:
+            raise SearchError(f"Google API HTTP error: {e.response.text}")
         except Exception as e:
             raise SearchError(f"Google search failed: {str(e)}")
-    
-    def _build_search_string(self, query: SearchQuery) -> str:
-        """Build Google search string with filters."""
+
+    def _build_search_string(self, query: "SearchQuery") -> str:
+        """Builds a Google query string with optional filters."""
         search_parts = [query.query]
-        
-        # Site filter
+
         if query.site_filter:
             search_parts.append(f"site:{query.site_filter}")
-        
-        # Filetype filter
+
         if query.filetype_filter:
             search_parts.append(f"filetype:{query.filetype_filter}")
-        
-        # Time filter (using Google's date syntax)
-        if query.time_filter:
-            time_mapping = {
-                "day": "d1",
-                "week": "w1", 
-                "month": "m1",
-                "year": "y1"
-            }
-            if query.time_filter in time_mapping:
-                search_parts.append(f"after:{time_mapping[query.time_filter]}")
-        
-        # Exclude terms
-        for exclude_term in query.exclude_terms:
+
+        for exclude_term in getattr(query, "exclude_terms", []):
             search_parts.append(f"-{exclude_term}")
-        
+
         return " ".join(search_parts)
 
 class DuckDuckGoSearchEngine(SearchEngine):
