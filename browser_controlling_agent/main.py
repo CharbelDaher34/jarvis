@@ -159,61 +159,6 @@ def check_configuration() -> bool:
         return False
 
 # 
-async def interactive_mode(headless: bool, performance: bool) -> None:
-    """Run in interactive mode with a simple command loop."""
-    print("🤖 Enhanced Browser Agent - Interactive Mode")
-    print("=" * 50)
-    print("Type your automation requests or commands:")
-    print("  - 'exit' or 'quit' to stop")
-    print("  - 'help' for available commands")
-    print("  - 'status' for system information")
-    print("  - 'clear' to clear screen")
-    print()
-    
-    if performance:
-        logger.info("Performance monitoring requested (not available in simplified version)")
-    
-    try:
-        while True:
-            try:
-                # Get user input
-                prompt = input("🎯 Agent > ").strip()
-                
-                if not prompt:
-                    continue
-                
-                command = prompt.lower()
-
-                if command in EXIT_COMMANDS:
-                    print("👋 Goodbye!")
-                    break
-
-                handler = COMMAND_HANDLERS.get(command)
-                if handler:
-                    await handler()
-                    continue
-                
-                # Execute automation task
-                print(f"\n🚀 Executing: {prompt}")
-                print("-" * 50)
-                
-                result = await run_task(prompt, headless=headless)
-                
-                print(f"\n✅ Task completed successfully!")
-                print(f"📝 Result length: {len(result)} characters")
-                print()
-                
-            except KeyboardInterrupt:
-                print("\n\n⏹️  Task interrupted by user")
-                continue
-            except Exception as e:
-                logger.error(f"Task failed: {e}")
-                print(f"❌ Error: {e}")
-                continue
-    
-    finally:
-        pass  # Cleanup handled by context managers
-
 
 def print_help() -> None:
     """Print help information."""
@@ -285,7 +230,7 @@ async def run_single_task(prompt: str, headless: bool, performance: bool) -> Non
         logger.info("Performance monitoring requested (not available in simplified version)")
     
     try:
-        result = await run_task(prompt, headless=headless)
+        result = await run_task(prompt, headless=headless, use_orchestrator=False)
         
         if result:
             print(f"\n{'='*60}")
@@ -309,9 +254,6 @@ async def _dispatch(args: Args) -> int:
         success = check_configuration()
         return 0 if success else 1
 
-    if args.interactive:
-        await interactive_mode(args.headless, args.performance)
-        return 0
 
     if args.prompt:
         await run_single_task(args.prompt, args.headless, args.performance)

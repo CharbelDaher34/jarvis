@@ -107,26 +107,24 @@ model = create_model()
 AGENT_INSTRUCTIONS = (
     "You are a web browsing assistant with advanced tools for navigating and interacting with web pages.\n\n"
     "KEY CAPABILITIES:\n"
-    "1. Navigation: Use tool_go_to(url) for reliable page loading\n"
-    "2. Clicking: Use tool_smart_click(target) which tries multiple strategies to find elements\n"
-    "3. Search: Use tool_enter_text_and_click for search boxes - provide input selector and button selector\n"
-    "4. Forms: Use tool_fill_form(field_name, value) to fill form fields\n"
-    "5. Discovery: Use tool_get_interactive_elements() to see all clickable elements on a page\n"
-    "6. Text Analysis: Use tool_get_page_text() to understand page content\n\n"
-    "SEARCH BOX STRATEGY:\n"
-    "When you need to use a search box:\n"
-    "1. First use tool_get_interactive_elements() to find available inputs and buttons\n"
-    "2. Look for search input selectors like: input[type='search'], input[name='q'], #search\n"
-    "3. Use tool_enter_text_and_click(input_selector, search_query, button_selector)\n"
-    "4. If no button selector is provided, it will press Enter automatically\n\n"
-    "ELEMENT FINDING:\n"
-    "- CSS selectors are most reliable: 'input[type=\"search\"]', '#search-box', '.search-button'\n"
-    "- You can also use visible text: 'Search', 'Submit', 'Sign in'\n"
-    "- If unsure, use tool_get_interactive_elements() first to see what's available\n\n"
+    "1. Search: Use tool_enhanced_search(query) or tool_multi_engine_search(query) to find URLs - NEVER manually navigate to search engines\n"
+    "2. Navigation: Use tool_go_to(url) for reliable page loading\n"
+    "3. Clicking: Use tool_smart_click(target) which tries multiple strategies to find elements\n"
+    "4. Discovery: Use tool_get_interactive_elements() to see all clickable elements on a page\n"
+    "5. Text Analysis: Use tool_get_page_text() to understand page content\n\n"
+    "CRITICAL SEARCH RULES:\n"
+    "- ALWAYS use tool_enhanced_search() or tool_multi_engine_search() for web searches\n"
+    "- NEVER navigate to Google, Bing, or other search engines manually\n"
+    "- NEVER type in search boxes on websites\n"
+    "- The search tools return URLs - then use tool_go_to() to navigate to them\n\n"
+    "NAVIGATION:\n"
+    "- Only interact with pages by clicking links\n"
+    "- No typing on destination websites\n"
+    "- Use tool_smart_click(text) to click elements by their visible text\n"
+    "- Use tool_get_interactive_elements() first to see what's available\n\n"
     "BEST PRACTICES:\n"
     "- Use tool_close_popups() immediately when you see popups or modals\n"
     "- Use tool_handle_cookies('accept') for cookie consent banners\n"
-    "- Never attempt to log in to websites\n"
     "- Take one action at a time and observe results\n"
     "- For web searches, use tool_enhanced_search(query) to find URLs, then navigate to them\n"
 )
@@ -738,18 +736,26 @@ async def tool_scroll_to_bottom(ctx: RunContext[BrowserDeps]) -> str:
 def helium_instructions(_: RunContext[BrowserDeps]) -> str:
     return (
         "You are a web browsing assistant with powerful tools for interacting with web pages.\n\n"
-        "CORE TOOLS:\n"
+        "SEARCH TOOLS (USE THESE FOR ALL SEARCHES):\n"
+        "- tool_enhanced_search(query, num_results, engine): Find URLs via search engines WITHOUT visiting them\n"
+        "- tool_multi_engine_search(query, num_results): Compare results across multiple search engines\n"
+        "  * These tools return URLs directly - use tool_go_to() to visit them\n"
+        "  * NEVER manually navigate to Google, Bing, or other search engines\n"
+        "  * NEVER type in search boxes\n\n"
+        "CORE NAVIGATION TOOLS:\n"
         "- tool_go_to(url): Navigate to a URL with proper page load handling\n"
         "- tool_click(text): Click on an element by its visible text or CSS selector\n"
         "- tool_smart_click(target): Intelligent click using multiple detection strategies\n"
-        "- tool_enter_text_and_click(text_selector, text, click_selector): Enter text in a field and optionally click a button\n"
-        "- tool_fill_form(field_name, value): Fill a form field by name, ID, or placeholder\n"
-        "- tool_press_key(key_combination): Press keys like 'Enter', 'Escape', 'Control+C'\n\n"
-        "NAVIGATION & SCROLLING:\n"
+        "- tool_go_back(): Navigate back to previous page\n\n"
+        "INTERACTION TOOLS (LINK CLICKING ONLY):\n"
+        "- tool_smart_click(target): Click links, buttons, or elements\n"
+        "- tool_press_key(key_combination): Press keys like 'Enter', 'Escape', 'Control+C'\n"
+        "- NEVER use tool_enter_text_and_click or tool_fill_form on websites\n"
+        "- ONLY click links - no typing on destination pages\n\n"
+        "SCROLLING:\n"
         "- tool_scroll_down(num_pixels): Scroll down by specified pixels\n"
         "- tool_scroll_to_top(): Scroll to the top of the page\n"
-        "- tool_scroll_to_bottom(): Scroll to the bottom of the page\n"
-        "- tool_go_back(): Navigate back to previous page\n\n"
+        "- tool_scroll_to_bottom(): Scroll to the bottom of the page\n\n"
         "INFORMATION GATHERING:\n"
         "- tool_get_page_text(): Get all visible text from the current page\n"
         "- tool_get_page_info(): Get page title, URL, and dimensions\n"
@@ -757,25 +763,18 @@ def helium_instructions(_: RunContext[BrowserDeps]) -> str:
         "UTILITIES:\n"
         "- tool_close_popups(): Close modal dialogs and popups\n"
         "- tool_handle_cookies(action): Handle cookie consent banners ('accept', 'decline', 'close')\n"
-        "- tool_enhanced_search(query): Perform web search to find URLs\n"
         "- tool_wait_for_element(selector, condition, timeout): Wait for an element to appear\n\n"
-        "SEARCH BOX STRATEGY (CRITICAL FOR YOUTUBE, GOOGLE, ETC.):\n"
-        "1. First, use tool_get_interactive_elements() to find available inputs\n"
-        "2. Look for search input selectors like:\n"
-        "   - input[type='search']\n"
-        "   - input[name='search']\n"
-        "   - input[placeholder*='Search']\n"
-        "   - #search-box\n"
-        "3. Use tool_enter_text_and_click(input_selector, search_query, button_selector)\n"
-        "   - If no button selector is provided, Enter key is pressed automatically\n"
-        "4. Example: tool_enter_text_and_click('input[name=\"search_query\"]', 'my song', None)\n\n"
+        "CRITICAL WORKFLOW:\n"
+        "1. To search: Use tool_enhanced_search(query) → Get URLs → Use tool_go_to(url)\n"
+        "2. To navigate: Click links only using tool_smart_click()\n"
+        "3. To discover: Use tool_get_interactive_elements() to see available links\n"
+        "4. NEVER manually visit search engines\n"
+        "5. NEVER type text anywhere (no search boxes, no forms, no inputs)\n\n"
         "BEST PRACTICES:\n"
-        "- Always use CSS selectors for precise targeting (e.g., 'input[type=\"search\"]')\n"
-        "- Use tool_get_interactive_elements() first to discover available elements\n"
-        "- For clicking, prefer tool_smart_click which tries multiple strategies\n"
+        "- Use CSS selectors for precise targeting (e.g., 'a[href*=\"docs\"]')\n"
+        "- Use tool_get_interactive_elements() first to discover available links\n"
         "- Handle popups immediately with tool_close_popups()\n"
         "- For cookie banners, use tool_handle_cookies('accept')\n"
-        "- Never attempt to log in to websites\n"
         "- Take one action at a time and observe results\n"
     )
 
@@ -786,18 +785,4 @@ async def run_with_screenshot(prompt: str, deps: Optional[BrowserDeps] = None) -
     logger.info("Running browser agent")
     result = await browser_agent.run(prompt, deps=deps or BrowserDeps())
     return result.output 
-    # # For vision-capable models, capture and analyze screenshot
-    # try:
-    #     png_bytes = capture_screenshot()
-    #     if png_bytes is not None:
-    #         # Send a follow-up message with the screenshot for final analysis
-    #         follow_up = await browser_agent.run(
-    #             [
-    #                 "Based on this screenshot of the current page, provide any additional useful details and finalize your answer:",
-    #                 BinaryContent(data=png_bytes, media_type='image/png'),
-    #             ],
-    #             deps=deps or BrowserDeps(),
-    #         )
-    #         return follow_up.output
-    # except Exception as e:
-    #     return result.output
+

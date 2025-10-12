@@ -9,7 +9,6 @@ from datetime import datetime
 import helium
 from selenium import webdriver
 
-from src.browser_agent.agent import BrowserDeps, run_with_screenshot
 from src.browser_agent.config import load_config
 from src.browser_agent.error_handling import BrowserConnectionError, safe_execute
 from src.browser_agent.utils import (
@@ -448,11 +447,13 @@ def _should_keep_browser_open(headless: bool) -> bool:
 async def run_task(
     prompt: str, 
     headless: bool = False,
-    record_video: bool = False,
-    video_dir: Optional[str] = None,
-    screenshots_dir: Optional[str] = None,
+    record_video: bool = True,
+    video_dir: Optional[str] = "videos",
+    screenshots_dir: Optional[str] = "screenshots",
     starting_url: Optional[str] = None,
-    notification_callback: Optional[callable] = None
+    notification_callback: Optional[callable] = None,
+    use_multi_agent: bool = False,
+    max_iterations: int = 20
 ) -> str:
     """
     Run a browser automation task with enhanced error handling.
@@ -465,6 +466,8 @@ async def run_task(
         screenshots_dir: Directory to save screenshots
         starting_url: Optional initial URL to navigate to before starting task
         notification_callback: Optional callback for task progress notifications
+        use_multi_agent: Whether to use multi-agent system (Planner->Browser->Critique) or single browser agent
+        max_iterations: Maximum iterations for multi-agent mode (only used if use_multi_agent=True)
         
     Returns:
         Task result output
@@ -473,11 +476,21 @@ async def run_task(
     logger.info("Starting Browser Automation Task")
     logger.info("="*60)
     
+    # Log execution mode
+    if use_multi_agent:
+        logger.info("🎭 Using Multi-Agent System (Planner->Browser->Critique)")
+    else:
+        logger.info("🤖 Using Single Browser Agent")
+    
+    # Import orchestrator
+    from src.browser_agent.orchestrator import run_with_orchestrator
+    
     # Enhance prompt with starting URL if provided
     if starting_url:
         prompt = f"First, navigate to {starting_url}. Then, {prompt}"
         logger.info(f"Task will start at URL: {starting_url}")
     
+    # Start browser session
     session = BrowserSession(headless, record_video=record_video, video_dir=video_dir)
     
     # Register notification callback if provided
@@ -507,12 +520,19 @@ async def run_task(
             logger.debug(f"Task start screenshot: {screenshot_path}")
         logger.info("✅ Session configured")
 
-        # Step 3: Execute task
+        # Step 3: Execute task via orchestrator
         logger.info(f"🔄 Running task: {prompt[:100]}...")
         session.notification_manager.notify(f"Executing task: {prompt[:50]}...", MessageType.STEP.value)
         session.take_screenshot("before_execution")
         
-        result = await run_with_screenshot(prompt, deps=BrowserDeps(headless=headless))
+        # Always use orchestrator - it decides between multi-agent or single agent
+        result = await run_with_orchestrator(
+            prompt=prompt,
+            headless=headless,
+            max_iterations=max_iterations,
+            use_multi_agent=use_multi_agent,
+            notification_callback=notification_callback
+        )
         
         session.take_screenshot("after_execution")
 
@@ -588,52 +608,3 @@ async def run_task(
             session.close(force=False)
 
 
-async def run_task_with_context(
-    prompt: str,
-    starting_url: Optional[str] = None,
-    headless: bool = False,
-    **kwargs
-) -> str:
-    """
-    Run a browser automation task with an optional starting URL.
-    
-    This is a convenience wrapper around run_task that maintains backward compatibility.
-    
-    Args:
-        prompt: Task description for the agent
-        starting_url: Initial URL to navigate to before starting task
-        headless: Whether to run in headless mode
-        **kwargs: Additional arguments passed to run_task
-        
-    Returns:
-        Task result output
-    """
-    return await run_task(
-        prompt=prompt,
-        starting_url=starting_url,
-        headless=headless,
-        **kwargs
-    )
-
-
-def navigate_to_url(url: str) -> None:
-    """
-    Navigate to a specific URL in the current browser session.
-    
-    Args:
-        url: URL to navigate to (protocol will be added if missing)
-    """
-    try:
-        # Add URL protocol if missing
-        if not url.startswith(('http://', 'https://')):
-            url = f"https://{url}"
-        
-        driver = helium.get_driver()
-        if driver:
-            driver.get(url)
-            logger.info(f"Successfully navigated to {url}")
-        else:
-            logger.error("No active browser driver available")
-    except Exception as e:
-        logger.error(f"Failed to navigate to {url}: {e}")
-        raise
