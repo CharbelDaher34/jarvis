@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Optional, Dict, List, Any
-from pathlib import Path
 from datetime import datetime
 
 from playwright.async_api import (
@@ -169,7 +168,7 @@ class AsyncBrowserSession:
     
     async def navigate(self, url: str, wait_until: str = "domcontentloaded") -> Dict[str, Any]:
         """
-        Navigate to URL with automatic waiting.
+        Navigate to URL in a new tab with automatic waiting.
         
         Args:
             url: Target URL
@@ -179,7 +178,7 @@ class AsyncBrowserSession:
         Returns:
             Dict with navigation details
         """
-        if not self._page:
+        if not self._context:
             raise BrowserConnectionError("Browser not started")
         
         # Ensure URL has protocol
@@ -189,6 +188,26 @@ class AsyncBrowserSession:
         start_time = datetime.now()
         
         try:
+            # Create new page (tab)
+            new_page = await self._context.new_page()
+            
+            # Set default timeout for new page
+            config = load_config()
+            new_page.set_default_timeout(config.browser.page_load_timeout * 1000)
+            
+            # Set up request interception for the new page
+            async def handle_route(route, request):
+                if config.browser.disable_images:
+                    if request.resource_type in ["image", "stylesheet", "font", "media"]:
+                        await route.abort()
+                        return
+                await route.continue_()
+            
+            await new_page.route("**/*", handle_route)
+            
+            # Switch to the new page
+            self._page = new_page
+            
             # Navigate with auto-wait
             response = await self._page.goto(url, wait_until=wait_until)
             
@@ -481,6 +500,57 @@ class AsyncBrowserSession:
         except PlaywrightTimeout:
             return False
     
+    async def get_all_pages(self) -> List[Page]:
+        """Get all open pages (tabs)."""
+        if not self._context:
+            raise BrowserConnectionError("Browser not started")
+        return self._context.pages
+    
+    async def close_current_tab(self) -> None:
+        """Close the current tab and switch to the previous one."""
+        if not self._page:
+            raise BrowserConnectionError("Browser not started")
+        
+        pages = await self.get_all_pages()
+        if len(pages) <= 1:
+            logger.warning("Cannot close the last tab")
+            return
+        
+        # Close current page
+        await self._page.close()
+        
+        # Switch to the last remaining page
+        pages = await self.get_all_pages()
+        if pages:
+            self._page = pages[-1]
+            logger.info(f"Switched to tab: {await self._page.title()}")
+    
+    async def switch_to_tab(self, index: int) -> None:
+        """Switch to a specific tab by index (0-based)."""
+        if not self._context:
+            raise BrowserConnectionError("Browser not started")
+        
+        pages = await self.get_all_pages()
+        if 0 <= index < len(pages):
+            self._page = pages[index]
+            logger.info(f"Switched to tab {index}: {await self._page.title()}")
+        else:
+            raise ValueError(f"Tab index {index} out of range (0-{len(pages)-1})")
+    
+    async def close_all_tabs_except_current(self) -> None:
+        """Close all tabs except the current one."""
+        if not self._page:
+            raise BrowserConnectionError("Browser not started")
+        
+        current_page = self._page
+        pages = await self.get_all_pages()
+        
+        for page in pages:
+            if page != current_page:
+                await page.close()
+        
+        logger.info("Closed all tabs except current")
+    
     @property
     def page(self) -> Page:
         """Get current page for direct Playwright API access."""
@@ -500,12 +570,16 @@ class AsyncBrowserSession:
             if self.total_actions > 0 else 0
         )
         
+        # Get number of open tabs
+        open_tabs = len(self._context.pages) if self._context else 0
+        
         return {
             "total_actions": self.total_actions,
             "failed_actions": self.failed_actions,
             "success_rate": f"{success_rate:.1f}%",
             "unique_urls_visited": len(self.visited_urls),
-            "action_history_count": len(self.action_history)
+            "action_history_count": len(self.action_history),
+            "open_tabs": open_tabs
         }
     
     async def close(self) -> None:

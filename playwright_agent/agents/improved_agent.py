@@ -164,7 +164,7 @@ def create_improved_agent(
             Formatted list of search results with URLs
         """
         try:
-            from search_engines import (
+            from ..search_engines import (
                 EnhancedSearchManager,
                 SearchQuery
             )
@@ -264,7 +264,9 @@ def create_improved_agent(
                 if not value:
                     return "❌ Error: 'value' required for type action"
                 result = await browser.type_text(target, value)
-                return f"✅ {result}"
+                # press Enter to submit
+                await browser.page.keyboard.press("Enter")
+                return f"✅ {result} and pressed Enter to submit"
             
             elif action == "select":
                 if not value:
@@ -430,20 +432,20 @@ def create_improved_agent(
     return agent
 
 
-async def run_improved_agent(task: str, headless: bool = False) -> str:
+async def run_improved_agent(task: str, headless: bool = False, keep_browser_open: bool = True) -> str:
     """
     Run the improved agent on a task.
     
     Args:
         task: User's task description
         headless: Whether to run browser in headless mode
-    
+        keep_browser_open: Whether to keep the browser open after the task is completed
     Returns:
         Task result
     """
     # Initialize browser and vision
     browser = AsyncBrowserSession(headless=headless)
-    await browser.start()
+    await browser.start()  # Start the browser before using it
     
     vision = VisionAnalyzer()
     
@@ -470,7 +472,10 @@ async def run_improved_agent(task: str, headless: bool = False) -> str:
         return result.output
         
     finally:
-        await browser.close()
+        if not keep_browser_open:
+            await browser.close()
+        else:
+            logger.info("🌐 Browser kept open as requested. Close manually to avoid warnings.")
 
 
 # Example usage

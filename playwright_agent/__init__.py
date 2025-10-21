@@ -22,6 +22,9 @@ from .core.async_browser import AsyncBrowserSession
 from .core.vision_analyzer import VisionAnalyzer, VisualElement, PageVisualAnalysis
 from .core.adaptive_retry import AdaptiveRetryManager, StrategyType, RetryStrategy
 
+# Search engines
+from .search_engines import EnhancedSearchManager, SearchQuery
+
 # Configuration
 from .config import (
     AgentConfig,
@@ -89,5 +92,7 @@ __all__ = [
     "TimeoutManager",
     "CircuitBreaker",
     "validate_url",
+    "EnhancedSearchManager",
+    "SearchQuery",
 ]
 

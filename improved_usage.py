@@ -34,9 +34,9 @@ async def example_1_basic_usage():
     from playwright_agent import run_improved_agent
     
     result = await run_improved_agent(
-        task="Open https://en.wikipedia.org/wiki/Artificial_intelligence, then click on the 'Philosophy' link at the left then click 'Narrow vs. general AI'",
-        headless=False  # Set to True for production
-    )
+        task="Open youtube and search for 'Believer' and play the video. Then search for 'Fine tuning llms with unsloth' and read the blog.",
+        headless=False,  # Set to True for production
+        keep_browser_open=False)
     
     print("\n✅ Result:")
     print(result)
