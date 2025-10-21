@@ -2,17 +2,17 @@
 Browser Automation Agents
 
 This package contains specialized agents for browser automation:
-- agent: Main browser execution agent
-- planner_agent: Task planning and decomposition agent
-- critique_agent: Progress analysis and feedback agent
+- improved_agent: Main browser execution agent with vision capabilities
 """
 
 from .improved_agent import (
     create_improved_agent,
-    run_improved_agent
+    run_improved_agent,
+    BrowserContext,
 )
 
 __all__ = [
-    'create_improved_agent',
-    'run_improved_agent'
+    "create_improved_agent",
+    "run_improved_agent",
+    "BrowserContext",
 ]

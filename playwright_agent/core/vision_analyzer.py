@@ -7,9 +7,11 @@ from __future__ import annotations
 import base64
 import logging
 from typing import Optional, Dict, Any, List
-from pathlib import Path
 
 from pydantic import BaseModel
+from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.anthropic import AnthropicModel
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +36,11 @@ class PageVisualAnalysis(BaseModel):
 
 class VisionAnalyzer:
     """
-    Analyzes screenshots using vision-capable LLMs.
+    Analyzes screenshots using vision-capable LLMs with Pydantic AI.
     
     Supports:
     - GPT-4o (vision built-in)
     - Claude 3.5 Sonnet (vision)
-    - Gemini Pro Vision
     """
     
     def __init__(self, model_type: str = "auto"):
@@ -47,52 +48,71 @@ class VisionAnalyzer:
         Initialize vision analyzer.
         
         Args:
-            model_type: 'gpt4v', 'claude', 'gemini', or 'auto'
+            model_type: 'openai', 'anthropic', or 'auto'
         """
         self.model_type = model_type
-        self._vision_model = self._initialize_model()
+        self.model = self._initialize_model()
+        
+        # Create agents for different analysis types
+        self.general_agent = Agent(
+            self.model,
+            output_type=str,
+            system_prompt="You are an expert at analyzing webpage screenshots. Provide detailed, accurate descriptions."
+        )
+        
+        self.structured_agent = Agent(
+            self.model,
+            output_type=PageVisualAnalysis,
+            system_prompt="You are an expert at analyzing webpage structure. Provide structured analysis of page layouts."
+        )
     
     def _initialize_model(self):
-        """Initialize the vision model based on configuration."""
-        from config import load_config
+        """
+        Initialize the vision model based on configuration.
         
-        config = load_config()
+        Pydantic AI automatically reads API keys from environment variables:
+        - OPENAI_API_KEY for OpenAI models
+        - ANTHROPIC_API_KEY for Anthropic models
+        """
+        import os
+        
+        # Check which API keys are available in environment
+        has_openai = bool(os.getenv("OPENAI_API_KEY"))
+        has_anthropic = bool(os.getenv("ANTHROPIC_API_KEY"))
         
         # Try to use available vision model
-        if config.openai_api_key and self.model_type in ("gpt4v", "auto"):
-            return self._init_gpt4v(config)
-        elif config.anthropic_api_key and self.model_type in ("claude", "auto"):
-            return self._init_claude(config)
-        elif config.gemini_api_key and self.model_type in ("gemini", "auto"):
-            return self._init_gemini(config)
+        if has_openai and self.model_type in ("openai", "auto"):
+            logger.info("✅ Initialized GPT-4o (vision) with Pydantic AI")
+            return OpenAIChatModel("gpt-4o")
+        elif has_anthropic and self.model_type in ("anthropic", "auto"):
+            logger.info("✅ Initialized Claude 3.5 Sonnet (vision) with Pydantic AI")
+            return AnthropicModel("claude-3-5-sonnet-20241022")
         else:
-            logger.warning("No vision model available - vision analysis disabled")
-            return None
+            logger.warning("No vision model API key found in environment - defaulting to GPT-4o")
+            # Fall back to OpenAI (will fail if OPENAI_API_KEY not set)
+            return OpenAIChatModel("gpt-4o")
     
-    def _init_gpt4v(self, config):
-        """Initialize GPT-4o with vision."""
-        from openai import AsyncOpenAI
+    def _create_image_message(self, screenshot: bytes, prompt: str) -> List[Dict[str, Any]]:
+        """
+        Create message with image for vision models.
         
-        client = AsyncOpenAI(api_key=config.openai_api_key)
-        logger.info("✅ Initialized GPT-4o (vision)")
-        return ("gpt4v", client)
-    
-    def _init_claude(self, config):
-        """Initialize Claude with vision."""
-        from anthropic import AsyncAnthropic
+        Args:
+            screenshot: Screenshot bytes
+            prompt: Text prompt
         
-        client = AsyncAnthropic(api_key=config.anthropic_api_key)
-        logger.info("✅ Initialized Claude 3.5 Sonnet (vision)")
-        return ("claude", client)
-    
-    def _init_gemini(self, config):
-        """Initialize Gemini with vision."""
-        import google.generativeai as genai
+        Returns:
+            Message list with image and text
+        """
+        base64_image = base64.b64encode(screenshot).decode('utf-8')
+        image_url = f"data:image/png;base64,{base64_image}"
         
-        genai.configure(api_key=config.gemini_api_key)
-        model = genai.GenerativeModel('gemini-pro-vision')
-        logger.info("✅ Initialized Gemini Pro Vision")
-        return ("gemini", model)
+        return [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": image_url, "detail": "high"}}
+            ]
+        }]
     
     async def analyze_screenshot(
         self,
@@ -100,7 +120,7 @@ class VisionAnalyzer:
         prompt: str = "Describe this webpage and identify all interactive elements."
     ) -> str:
         """
-        Analyze screenshot with vision model.
+        Analyze screenshot with vision model using Pydantic AI.
         
         Args:
             screenshot: Screenshot bytes (PNG/JPEG)
@@ -109,94 +129,22 @@ class VisionAnalyzer:
         Returns:
             Analysis text from vision model
         """
-        if not self._vision_model:
-            return "Vision analysis not available - no vision model configured"
-        
-        model_type, client = self._vision_model
-        
         try:
-            if model_type == "gpt4v":
-                return await self._analyze_with_gpt4v(screenshot, prompt, client)
-            elif model_type == "claude":
-                return await self._analyze_with_claude(screenshot, prompt, client)
-            elif model_type == "gemini":
-                return await self._analyze_with_gemini(screenshot, prompt, client)
+            # Create message with image
+            messages = self._create_image_message(screenshot, prompt)
+            
+            # Run agent with image
+            result = await self.general_agent.run(prompt, message_history=messages)
+            
+            return result.output
         
         except Exception as e:
-            logger.error(f"Vision analysis failed: {e}")
+            logger.error("Vision analysis failed: %s", e)
             return f"Vision analysis error: {str(e)}"
-    
-    async def _analyze_with_gpt4v(self, screenshot: bytes, prompt: str, client) -> str:
-        """Analyze with GPT-4o (vision built-in)."""
-        # Encode image to base64
-        base64_image = base64.b64encode(screenshot).decode('utf-8')
-        
-        response = await client.chat.completions.create(
-            model="gpt-4o",  # Updated from deprecated gpt-4-vision-preview
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{base64_image}",
-                                "detail": "high"
-                            }
-                        }
-                    ]
-                }
-            ],
-            max_tokens=1000
-        )
-        
-        return response.choices[0].message.content
-    
-    async def _analyze_with_claude(self, screenshot: bytes, prompt: str, client) -> str:
-        """Analyze with Claude 3.5 Sonnet."""
-        base64_image = base64.b64encode(screenshot).decode('utf-8')
-        
-        message = await client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1024,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/png",
-                                "data": base64_image
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt
-                        }
-                    ]
-                }
-            ]
-        )
-        
-        return message.content[0].text
-    
-    async def _analyze_with_gemini(self, screenshot: bytes, prompt: str, model) -> str:
-        """Analyze with Gemini Pro Vision."""
-        import PIL.Image
-        import io
-        
-        # Convert bytes to PIL Image
-        image = PIL.Image.open(io.BytesIO(screenshot))
-        
-        response = await model.generate_content_async([prompt, image])
-        return response.text
     
     async def analyze_page_structure(self, screenshot: bytes) -> PageVisualAnalysis:
         """
-        Perform structured analysis of page layout.
+        Perform structured analysis of page layout with Pydantic AI.
         
         Args:
             screenshot: Page screenshot
@@ -205,35 +153,40 @@ class VisionAnalyzer:
             Structured PageVisualAnalysis object
         """
         prompt = """
-Analyze this webpage screenshot and provide:
+Analyze this webpage screenshot and provide structured information:
 
-1. Layout Description: Overall page structure (header, main content, sidebar, footer)
-2. Key Elements: Important interactive elements (buttons, links, forms)
-   For each element note:
-   - Type (button/link/input/etc)
-   - Text content
-   - Location (top-left, center, etc)
-   - Purpose
-3. Navigation Elements: Menu items, breadcrumbs, tabs
-4. Call to Action: Primary action user should take
-5. Page Purpose: What is this page for?
-6. Potential Issues: Any popups, overlays, or accessibility issues
-
-Format as JSON.
+1. layout_description: Overall page structure (header, main content, sidebar, footer)
+2. key_elements: Important interactive elements (buttons, links, forms) with:
+   - element_type (button/link/input/etc)
+   - text_content
+   - location_description (top-left, center, etc)
+   - purpose
+3. navigation_elements: Menu items, breadcrumbs, tabs
+4. call_to_action: Primary action user should take (or null if none)
+5. page_purpose: What is this page for?
+6. potential_issues: Any popups, overlays, or accessibility issues
 """
         
-        result = await self.analyze_screenshot(screenshot, prompt)
+        try:
+            # Create message with image
+            messages = self._create_image_message(screenshot, prompt)
+            
+            # Run structured agent with image - returns PageVisualAnalysis directly
+            result = await self.structured_agent.run(prompt, message_history=messages)
+            
+            return result.output
         
-        # Parse response into structured format
-        # (In production, use structured output from LLM)
-        return PageVisualAnalysis(
-            layout_description=result[:200],
-            key_elements=[],
-            navigation_elements=[],
-            call_to_action=None,
-            page_purpose=result[:100],
-            potential_issues=[]
-        )
+        except Exception as e:
+            logger.error("Structured analysis failed: %s", e)
+            # Return fallback
+            return PageVisualAnalysis(
+                layout_description=f"Analysis failed: {str(e)}",
+                key_elements=[],
+                navigation_elements=[],
+                call_to_action=None,
+                page_purpose="Unknown",
+                potential_issues=[f"Analysis error: {str(e)}"]
+            )
     
     async def find_element_visually(
         self,
@@ -241,7 +194,7 @@ Format as JSON.
         element_description: str
     ) -> Dict[str, Any]:
         """
-        Locate element based on visual description.
+        Locate element based on visual description using Pydantic AI.
         
         Args:
             screenshot: Page screenshot
@@ -265,9 +218,8 @@ If not found, explain what you see instead.
         
         analysis = await self.analyze_screenshot(screenshot, prompt)
         
-        # Parse and return structured data
         return {
-            "found": True,  # Would parse from analysis
+            "found": "not found" not in analysis.lower(),
             "description": element_description,
             "analysis": analysis
         }

@@ -19,8 +19,8 @@ from playwright.async_api import (
     TimeoutError as PlaywrightTimeout
 )
 
-from config import load_config
-from error_handling import (
+from ..config import load_config
+from ..error_handling import (
     BrowserConnectionError,
     NavigationError,
     PageLoadError

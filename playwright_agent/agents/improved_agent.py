@@ -16,9 +16,9 @@ from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 
-from core.async_browser import AsyncBrowserSession
-from core.vision_analyzer import VisionAnalyzer
-from config import load_config
+from ..core.async_browser import AsyncBrowserSession
+from ..core.vision_analyzer import VisionAnalyzer
+from ..config import load_config
 
 logger = logging.getLogger(__name__)
 
