@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Say & Repeat (minimal): Microphone -> SpeechRecognition -> pyttsx3 TTS
+Say & Repeat (minimal): Microphone -> SpeechRecognition -> Browser Agent -> pyttsx3 TTS
 
 What it does:
 - Continuously listens for short phrases from your default microphone.
 - Transcribes speech to text with SpeechRecognition (Google Web Speech API).
-- Immediately reads the text back using offline TTS (pyttsx3).
+- Processes the text using a browser agent for research/tasks.
+- Immediately reads the processed result back using offline TTS (pyttsx3).
 - Exit by pressing Ctrl+C or saying one of the stop words (configurable).
 
 Why this version?
@@ -36,11 +37,10 @@ Notes:
 
 import sys
 import time
-import torch
-import whisper
+import asyncio
 import speech_recognition as sr
-import numpy as np
 from config import settings
+from src.browser_agent.runner import run_task
 
 try:
     import pyttsx3
@@ -62,10 +62,6 @@ USE_WHISPER = settings.use_whisper
 WHISPER_MODEL = settings.whisper_model
 TTS_VOICE_PREFERENCE = settings.tts_voice_preference
 
-# Load Whisper model based on configuration
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model = whisper.load_model(WHISPER_MODEL, device=device)
-
 def speak(text: str):
     """Speak text using TTS engine - simplified approach like main.py"""
     try:
@@ -84,44 +80,21 @@ def speak(text: str):
         print(f"TTS Error: {e}")
 
 
-# def transcribe(recognizer: sr.Recognizer, audio: sr.AudioData, language: str, force_sphinx: bool = False) -> str:
-#     # Try Google first (unless forcing Sphinx), then fallback to Sphinx if available.
-#     if not force_sphinx:
-#         try:
-#             return recognizer.recognize_google(audio, language=language)
-#         except sr.RequestError:
-#             # no internet/quota; try Sphinx
-#             pass
-#         except sr.UnknownValueError:
-#             raise
-#     try:
-#         import pocketsphinx  # noqa: F401
-#         return recognizer.recognize_sphinx(audio, language=language)
-#     except Exception as exc:
-#         # If Sphinx not available, propagate a request error to be handled by caller.
-#         raise sr.RequestError("No online service and PocketSphinx not installed") from exc
-
 def transcribe(
     recognizer: sr.Recognizer,
     audio: sr.AudioData,
     language: str,
-    force_sphinx: bool = False,
     use_whisper: bool = USE_WHISPER,
 ) -> str:
-    # Try Google first (unless forcing Sphinx), then Whisper, then fallback to Sphinx if available.
-    # if not force_sphinx:
-    #     try:
-    #         return recognizer.recognize_google(audio, language=language)
-    #     except sr.RequestError:
-    #         # no internet/quota; try Whisper or Sphinx
-    #         pass
-    #     except sr.UnknownValueError:
-    #         raise
-
     if use_whisper:
         try:
+            import torch
+            import whisper
             import io
             import soundfile as sf
+            import numpy as np
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            model = whisper.load_model(WHISPER_MODEL, device=device)
 
             print("Using Whisper")
 
@@ -159,8 +132,6 @@ def transcribe(
         except Exception as exc:
             print(f"Whisper error: {exc}")
 
-
-
     try:
         print("Using Sphinx")
         return recognizer.recognize_sphinx(audio, language=language)
@@ -177,12 +148,26 @@ r.pause_threshold = PAUSE_THRESHOLD
 r.dynamic_energy_threshold = True
 # r.energy_threshold can be set manually if needed (e.g., in very noisy rooms)
 mic = sr.Microphone(device_index=MIC_DEVICE_INDEX)
-def main():
+def process_text(text: str) -> str:
+    """Process the transcribed text before speaking. Override this function to add custom processing."""
+    return text
+
+async def process_text_async(text: str) -> str:
+    """Process the transcribed text using browser agent before speaking."""
+    try:
+        result = await run_task(
+            prompt=text,
+            headless=False,  # Run in background
+            use_multi_agent=False  # Single browser agent
+        )
+        return result
+    except Exception as e:
+        print(f"Browser agent error: {e}")
+        return text  # Fallback to original text
+
+async def main():
 
     
-    for i in range(1):
-        speak("Hello how are you?")
-        time.sleep(0.01)
     print("=" * 60)
     print("Say & Repeat — SpeechRecognition + pyttsx3")
     print(f"Speak a phrase; I'll repeat it. Starts when voice detected, stops after {PAUSE_THRESHOLD}s silence.")
@@ -212,7 +197,7 @@ def main():
 
             # Transcribe
             try:
-                text = transcribe(r, audio, LANGUAGE, force_sphinx=FORCE_SPHINX, use_whisper=USE_WHISPER).strip()
+                text = transcribe(r, audio, LANGUAGE, use_whisper=USE_WHISPER).strip()
             except sr.UnknownValueError:
                 print("I couldn't understand that.")
                 speak("Sorry, I couldn't understand that.")
@@ -233,6 +218,9 @@ def main():
                     speak("Goodbye.")
                     return 0
 
+            # Process text before speaking
+            text = await process_text_async(text)
+
             # Speak back
             speak(text)
 
@@ -242,4 +230,4 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    asyncio.run(main())

@@ -8,6 +8,8 @@ from datetime import datetime
 
 import helium
 from selenium import webdriver
+## Go into the directory browser_controlling_agent/ path
+
 
 from src.browser_agent.config import load_config
 from src.browser_agent.error_handling import BrowserConnectionError, safe_execute

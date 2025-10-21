@@ -7,16 +7,16 @@ This package contains specialized agents for browser automation:
 - critique_agent: Progress analysis and feedback agent
 """
 
-from src.browser_agent.agents.agent import (
+from .agent import (
     browser_agent,
     BrowserDeps,
     run_with_screenshot
 )
-from src.browser_agent.agents.planner_agent import (
+from .planner_agent import (
     planner_agent,
     PlannerOutput
 )
-from src.browser_agent.agents.critique_agent import (
+from .critique_agent import (
     critique_agent,
     CritiqueOutput
 )

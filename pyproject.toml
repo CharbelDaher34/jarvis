@@ -27,3 +27,6 @@ dependencies = [
     "scrapy>=2.13.3",
     "scrapy-playwright>=0.0.44",
 ]
+
+[tool.uv.workspace]
+members = ["mcp_agent"]
