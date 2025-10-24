@@ -35,11 +35,18 @@ class Settings(BaseSettings):
     tts_rate_main: int = Field(180, description="TTS rate for main.py")
     
     # OpenAI Configuration (if needed)
-    openai_api_key: Optional[str] = Field(None, description="OpenAI API key")
-    openai_org_id: Optional[str] = Field(None, description="OpenAI organization ID")
+    OPENAI_API_KEY: Optional[str] = Field(None, description="OpenAI API key")
+    OPENAI_ORG_ID: Optional[str] = Field(None, description="OpenAI organization ID")
     
     # Logging
     log_level: str = Field("DEBUG", description="Logging level")
+    
+    # Tools Configuration
+    enabled_tools: List[str] = Field(
+        default_factory=lambda: ["playwright_agent", "calculator", "datetime"],
+        description="List of enabled tools"
+    )
+    playwright_headless: bool = Field(True, description="Run playwright in headless mode")
     
     model_config = {
         "env_file": ".env",
@@ -50,7 +57,7 @@ class Settings(BaseSettings):
     
     def get_stop_words_list(self) -> List[str]:
         """Convert comma-separated stop words to list."""
-        return [word.strip() for word in self.stop_words.split(",")]
+        return [word.strip() for word in self.stop_words.split(",") if word.strip() != ""]
     
     def get_logging_level(self) -> int:
         """Convert string log level to logging constant."""
@@ -61,7 +68,7 @@ class Settings(BaseSettings):
             "ERROR": logging.ERROR,
             "CRITICAL": logging.CRITICAL,
         }
-        return level_map.get(self.log_level.upper(), logging.DEBUG)
+        return level_map.get(self.log_level.upper() if isinstance(self.log_level, str) else self.log_level.upper(), logging.DEBUG)
 
 
 # Global settings instance

@@ -69,35 +69,115 @@ class AsyncBrowserSession:
         self.total_actions = 0
         self.failed_actions = 0
     
+    # async def start(self) -> None:
+    #     """Initialize browser with optimal settings."""
+    #     if self._active:
+    #         logger.warning("Browser already active")
+    #         return
+        
+    #     config = load_config()
+        
+    #     try:
+    #         # Start Playwright
+    #         self._playwright = await async_playwright().start()
+            
+    #         # Launch browser
+    #         self._browser = await self._playwright.chromium.launch(
+    #             headless=self.headless,
+    #             args=[
+    #                 "--disable-blink-features=AutomationControlled",
+    #                 "--disable-dev-shm-usage",
+    #                 f"--window-size={self.viewport_width},{self.viewport_height}",
+    #             ],
+    #             # Keep sandbox enabled for security
+    #         )
+            
+    #         # Create context (isolated session)
+    #         context_options = {
+    #             "viewport": {
+    #                 "width": self.viewport_width,
+    #                 "height": self.viewport_height
+    #             },
+    #             "user_agent": (
+    #                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    #                 "AppleWebKit/537.36 (KHTML, like Gecko) "
+    #                 "Chrome/120.0.0.0 Safari/537.36"
+    #             ),
+    #             "locale": "en-US",
+    #             "timezone_id": "America/New_York",
+    #         }
+            
+    #         # Add video recording if enabled
+    #         if self.record_video:
+    #             context_options["record_video_dir"] = "videos/"
+    #             context_options["record_video_size"] = {
+    #                 "width": self.viewport_width,
+    #                 "height": self.viewport_height
+    #             }
+            
+    #         self._context = await self._browser.new_context(**context_options)
+            
+    #         # Inject stealth scripts to avoid detection
+    #         await self._context.add_init_script("""
+    #             // Remove webdriver flag
+    #             Object.defineProperty(navigator, 'webdriver', {
+    #                 get: () => undefined
+    #             });
+                
+    #             // Mock plugins
+    #             Object.defineProperty(navigator, 'plugins', {
+    #                 get: () => [1, 2, 3, 4, 5]
+    #             });
+                
+    #             // Mock languages
+    #             Object.defineProperty(navigator, 'languages', {
+    #                 get: () => ['en-US', 'en']
+    #             });
+    #         """)
+            
+    #         # Create initial page
+    #         self._page = await self._context.new_page()
+            
+    #         # Set default timeout
+    #         self._page.set_default_timeout(config.browser.page_load_timeout * 1000)
+            
+    #         # Enable request interception for performance
+    #         await self._setup_request_interception()
+            
+    #         self._active = True
+    #         logger.info("✅ Async browser session started")
+            
+    #     except Exception as e:
+    #         await self.close()
+    #         raise BrowserConnectionError(f"Failed to start browser: {e}")
+    
     async def start(self) -> None:
-        """Initialize browser with optimal settings."""
+        """Initialize browser (Google Chrome) with optimal settings and English locale."""
         if self._active:
             logger.warning("Browser already active")
             return
-        
+
         config = load_config()
-        
+
         try:
             # Start Playwright
             self._playwright = await async_playwright().start()
-            
-            # Launch browser
+
+            # Launch Google Chrome
             self._browser = await self._playwright.chromium.launch(
+                # channel="chrome",  # Ensures Google Chrome instead of bundled Chromium
                 headless=self.headless,
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--disable-dev-shm-usage",
                     f"--window-size={self.viewport_width},{self.viewport_height}",
                 ],
-                # Keep sandbox enabled for security
+                # Keeping sandbox enabled for security
             )
-            
-            # Create context (isolated session)
+
+            # Define context options (English locale & timezone)
             context_options = {
-                "viewport": {
-                    "width": self.viewport_width,
-                    "height": self.viewport_height
-                },
+                "viewport": {"width": self.viewport_width, "height": self.viewport_height},
                 "user_agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -105,8 +185,12 @@ class AsyncBrowserSession:
                 ),
                 "locale": "en-US",
                 "timezone_id": "America/New_York",
+                "extra_http_headers": {
+                    "Accept-Language": "en-US,en;q=0.9"
+                }
             }
             
+
             # Add video recording if enabled
             if self.record_video:
                 context_options["record_video_dir"] = "videos/"
@@ -114,43 +198,43 @@ class AsyncBrowserSession:
                     "width": self.viewport_width,
                     "height": self.viewport_height
                 }
-            
+
+            # Create new context
             self._context = await self._browser.new_context(**context_options)
-            
-            # Inject stealth scripts to avoid detection
+
+            # Inject stealth scripts to reduce detection
             await self._context.add_init_script("""
                 // Remove webdriver flag
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
                 });
-                
+
                 // Mock plugins
                 Object.defineProperty(navigator, 'plugins', {
                     get: () => [1, 2, 3, 4, 5]
                 });
-                
+
                 // Mock languages
                 Object.defineProperty(navigator, 'languages', {
                     get: () => ['en-US', 'en']
                 });
             """)
-            
-            # Create initial page
+
+            # Create first page
             self._page = await self._context.new_page()
-            
-            # Set default timeout
+
+            # Set default timeout (convert seconds to ms)
             self._page.set_default_timeout(config.browser.page_load_timeout * 1000)
-            
-            # Enable request interception for performance
+
+            # Enable request interception for optimization
             await self._setup_request_interception()
-            
+
             self._active = True
-            logger.info("✅ Async browser session started")
-            
+            logger.info("✅ Async Chrome browser session started with English locale")
+
         except Exception as e:
             await self.close()
             raise BrowserConnectionError(f"Failed to start browser: {e}")
-    
     async def _setup_request_interception(self):
         """Intercept and block unnecessary resources for performance."""
         config = load_config()
@@ -166,7 +250,7 @@ class AsyncBrowserSession:
         
         await self._page.route("**/*", handle_route)
     
-    async def navigate(self, url: str, wait_until: str = "domcontentloaded") -> Dict[str, Any]:
+    async def navigate(self, url: str, wait_until: str = "commit") -> Dict[str, Any]:
         """
         Navigate to URL in a new tab with automatic waiting.
         
@@ -260,7 +344,7 @@ class AsyncBrowserSession:
         if is_likely_selector:
             # Try as CSS selector first
             try:
-                await self._page.click(selector, timeout=timeout or 5000)
+                await self._page.click(selector, timeout=timeout or 3000)  # Reduced from 5000ms
                 self.total_actions += 1
                 logger.info(f"✅ Clicked: {selector}")
                 return f"Clicked element: {selector}"
@@ -272,7 +356,7 @@ class AsyncBrowserSession:
     
     async def _smart_click_fallback(self, target: str, timeout: Optional[int] = None) -> str:
         """Try multiple strategies to click element."""
-        timeout_ms = timeout or 5000
+        timeout_ms = timeout or 2000  # Reduced from 5000ms for faster retries
         
         strategies = [
             # Strategy 1: Try as exact text content
@@ -313,14 +397,14 @@ class AsyncBrowserSession:
         self.failed_actions += 1
         raise Exception(f"All {len(strategies)} click strategies failed for: '{target}'")
     
-    async def type_text(self, selector: str, text: str, delay: int = 50) -> str:
+    async def type_text(self, selector: str, text: str, delay: int = 0) -> str:
         """
-        Type text into element with human-like delay.
+        Type text into element with minimal delay for speed.
         
         Args:
             selector: CSS selector, placeholder text, or field description
             text: Text to type
-            delay: Delay between keystrokes in ms
+            delay: Delay between keystrokes in ms (0 for instant)
         """
         if not self._page:
             raise BrowserConnectionError("Browser not started")

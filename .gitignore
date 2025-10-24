@@ -209,3 +209,7 @@ __marimo__/
 
 # project specific ignores
 TheAgenticBrowser/
+videos/
+*.webm
+*.plan.md
+say_and_repeat.py.old

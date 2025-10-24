@@ -139,7 +139,7 @@ def create_improved_agent(
     
     model = OpenAIChatModel(
         model_name=model_config["model"],
-        settings={"parallel_tool_calls": False, "max_tokens": 2048}
+        settings={"parallel_tool_calls": False, "max_tokens": 512}  # Enable parallel for speed
     )
     
     agent = Agent(
@@ -221,7 +221,8 @@ def create_improved_agent(
         ctx: RunContext[BrowserContext],
         action: Literal["click", "type", "select"],
         target: str,
-        value: Optional[str] = None
+        value: Optional[str] = None,
+        submit: bool = True
     ) -> str:
         """
         Interact with page elements - HIGHLY FLEXIBLE!
@@ -263,10 +264,12 @@ def create_improved_agent(
             elif action == "type":
                 if not value:
                     return "❌ Error: 'value' required for type action"
-                result = await browser.type_text(target, value)
-                # press Enter to submit
-                await browser.page.keyboard.press("Enter")
-                return f"✅ {result} and pressed Enter to submit"
+                result = await browser.type_text(target, value, delay=0)  # Fast typing
+                if submit:
+                    # press Enter to submit
+                    await browser.page.keyboard.press("Enter")
+                    return f"✅ {result} and pressed Enter to submit"
+                return f"✅ {result}"
             
             elif action == "select":
                 if not value:
@@ -443,8 +446,11 @@ async def run_improved_agent(task: str, headless: bool = False, keep_browser_ope
     Returns:
         Task result
     """
-    # Initialize browser and vision
-    browser = AsyncBrowserSession(headless=headless)
+    # Initialize browser and vision, put the height and width to be full screen so take the screen values
+    import pyautogui
+    screen_width, screen_height = pyautogui.size()
+    print(f"Screen width: {screen_width}, screen height: {screen_height}")
+    browser = AsyncBrowserSession(headless=headless, screenshots_dir="screenshotsa33", record_video=True,viewport_width=screen_width,viewport_height=screen_height)
     await browser.start()  # Start the browser before using it
     
     vision = VisionAnalyzer()

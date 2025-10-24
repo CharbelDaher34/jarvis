@@ -26,6 +26,10 @@ dependencies = [
     "ddgs>=9.6.0",
     "scrapy>=2.13.3",
     "scrapy-playwright>=0.0.44",
+    "pyautogui>=0.9.54",
+    "fuzzywuzzy>=0.18.0",
+    "python-levenshtein>=0.27.1",
+    "pytz>=2025.2",
 ]
 
 [tool.uv.workspace]

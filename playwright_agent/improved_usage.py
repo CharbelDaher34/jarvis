@@ -1,7 +1,11 @@
 """
-Examples demonstrating the improved browser agent implementation.
+Examples demonstrating the playwright_agent (browser automation tool).
 
-Run these to see the difference between old and new approach.
+These examples show how to use the playwright_agent directly.
+In the main Jarvis assistant (main.py), this is wrapped as a tool
+and called automatically based on your voice commands.
+
+Run these to test the playwright_agent capabilities.
 """
 import asyncio
 import logging
@@ -34,7 +38,7 @@ async def example_1_basic_usage():
     from playwright_agent import run_improved_agent
     
     result = await run_improved_agent(
-        task="Open youtube and search for 'Believer' and play the video. Then search for 'Fine tuning llms with unsloth' and read the blog.",
+        task="navigate to www.google.com and search for 'Fine tuning llms with unsloth' (write it in the search bar) and read the blog. After it tell me how to cook a rabbit",
         headless=False,  # Set to True for production
         keep_browser_open=False)
     
