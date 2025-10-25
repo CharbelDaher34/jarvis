@@ -350,3 +350,7 @@ Contributions welcome! Please:
 ---
 
 **Main Script**: `main.py` - Run with `uv run main.py`
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
