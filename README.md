@@ -197,6 +197,10 @@ ENABLED_TOOLS=["playwright_agent", "my_tool"]
 
 ## How Intelligent Routing Works
 
+Jarvis supports two approaches for tool routing:
+
+### Approach 1: Selector (Default)
+
 When you speak a command, Jarvis uses a 3-step process:
 
 1. **Selection**: An LLM analyzes your request and selects the most appropriate tool(s) based on their descriptions and capabilities
@@ -207,6 +211,7 @@ When you speak a command, Jarvis uses a 3-step process:
 - Automatically chooses the right tool for the job
 - Can use multiple tools together when needed
 - Fast parallel execution
+- Explicit reasoning about tool selection
 - Natural language responses
 
 **Example:**
@@ -214,6 +219,27 @@ When you speak a command, Jarvis uses a 3-step process:
 - Selector LLM: Chooses `playwright_agent` (can search and extract info)
 - Executor: Runs web search and extraction
 - Formatter: Creates friendly response from results
+
+### Approach 2: Native Pydantic AI Tools
+
+Tools are registered directly with a Pydantic AI agent as native function tools:
+
+1. **Direct Access**: The agent has all tools available as function calls
+2. **Agent-Driven**: The agent decides when and how to use tools
+3. **Single Response**: Tool usage and response formatting happen in one step
+
+**Benefits:**
+- Simpler architecture following Pydantic AI patterns
+- Potentially fewer LLM calls
+- Agent can iteratively use tools
+- Standard Pydantic AI tool conventions
+
+**To use the native approach:**
+```python
+processor = ToolProcessor(approach="native")
+```
+
+See `tools/APPROACHES.md` for detailed comparison and examples.
 
 ## Available Tools
 
