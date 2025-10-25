@@ -101,7 +101,7 @@ TTS_VOICE_PREFERENCE=jamie
 STOP_WORDS=stop,quit,exit
 
 # Tools
-ENABLED_TOOLS=["playwright_agent"]
+ENABLED_TOOLS=["playwright_agent", "calculator", "datetime", "gmail"]
 PLAYWRIGHT_HEADLESS=true
 ```
 
@@ -213,7 +213,7 @@ When you speak a command, Jarvis uses a 3-step process:
 
 ## Available Tools
 
-### Playwright Agent
+### 1. Playwright Agent
 
 Web automation tool for searching, navigating, and extracting information from websites.
 
@@ -227,9 +227,50 @@ Web automation tool for searching, navigating, and extracting information from w
 PLAYWRIGHT_HEADLESS=true  # Run without visible browser
 ```
 
-**See examples:**
+### 2. Calculator
+
+Performs mathematical calculations with natural language understanding.
+
+**Example commands:**
+- "Calculate 25 times 4"
+- "What's 15 plus 37?"
+- "Compute 100 divided by 5"
+- "What's 2 to the power of 8?"
+
+### 3. DateTime
+
+Provides current time, date, and day information.
+
+**Example commands:**
+- "What time is it?"
+- "What's today's date?"
+- "What day is it?"
+- "Tell me the current month"
+
+### 4. Gmail (requires setup)
+
+Search and read your Gmail emails with natural language queries.
+
+**Example commands:**
+- "Show my recent emails"
+- "Find emails from john"
+- "Do I have any unread emails?"
+- "Search for emails about invoice"
+- "Show last 10 emails from sarah"
+
+**Setup Gmail Tool:**
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select existing one
+3. Enable Gmail API
+4. Create OAuth 2.0 credentials (Desktop app)
+5. Download credentials as `oauth2_credentials.json`
+6. Place in project root directory
+7. First run will open browser for authentication
+
 ```bash
-uv run improved_usage.py
+# Install Gmail dependencies
+uv add google-auth-oauthlib google-auth-httplib2 google-api-python-client
 ```
 
 ## Development

@@ -30,6 +30,9 @@ dependencies = [
     "fuzzywuzzy>=0.18.0",
     "python-levenshtein>=0.27.1",
     "pytz>=2025.2",
+    "google-auth-oauthlib>=1.2.2",
+    "google-auth-httplib2>=0.2.0",
+    "google-api-python-client>=2.185.0",
 ]
 
 [tool.uv.workspace]

@@ -213,3 +213,7 @@ videos/
 *.webm
 *.plan.md
 say_and_repeat.py.old
+
+# Gmail OAuth tokens
+token.pickle
+oauth2_credentials.json

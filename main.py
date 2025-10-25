@@ -28,6 +28,7 @@ from tools import ToolProcessor
 from tools.playwright_tool import PlaywrightTool
 from tools.calculator_tool import CalculatorTool
 from tools.datetime_tool import DateTimeTool
+from tools.gmail_tool import GmailTool
 
 
 async def main():
@@ -60,6 +61,11 @@ async def main():
         datetime_tool = DateTimeTool(enabled=True)
         processor.register(datetime_tool)
         print("Registered datetime")
+    
+    if "gmail" in settings.enabled_tools:
+        gmail_tool = GmailTool(enabled=True)
+        processor.register(gmail_tool)
+        print("Registered gmail")
     
     # Set up microphone
     mic = sr.Microphone(device_index=settings.mic_device_index)

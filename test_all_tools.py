@@ -6,6 +6,8 @@ from tools import ToolProcessor
 from tools.calculator_tool import CalculatorTool
 from tools.datetime_tool import DateTimeTool
 from tools.example_tool import ExampleTool
+from tools.playwright_tool import PlaywrightTool
+from tools.gmail_tool import GmailTool
 
 
 async def test_tools():
@@ -22,11 +24,14 @@ async def test_tools():
     calculator = CalculatorTool(enabled=True)
     datetime = DateTimeTool(enabled=True)
     example = ExampleTool(enabled=True)
+    playwright = PlaywrightTool(enabled=True)
+    gmail = GmailTool(enabled=True)
     
     processor.register(calculator)
     processor.register(datetime)
     processor.register(example)
-    
+    processor.register(playwright)
+    processor.register(gmail)
     print(f"\nRegistered tools: {processor.get_enabled_tools()}")
     print("\nTool descriptions:")
     for name, desc in processor.get_tool_descriptions().items():
@@ -34,12 +39,7 @@ async def test_tools():
     
     # Test cases
     test_cases = [
-        "What time is it?",
-        "Calculate 25 times 4",
-        "What's 15 plus 37?",
-        "What's today's date?",
-        "Compute 100 divided by 5",
-        "What day is it?",
+        "Some days ago, someone from siren analytics named ELie Gerges sent me an email, what does he want?"
     ]
     
     for i, test_input in enumerate(test_cases, 1):

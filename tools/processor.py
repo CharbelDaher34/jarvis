@@ -125,7 +125,7 @@ class ToolProcessor:
                 else:
                     results_text.append(f"[{tool_name}]: No output")
             
-            # Step 3: Format final response
+            # Step 3: Use AI agent to formulate final response based on tool outputs
             combined_results = "\n\n".join(results_text)
             formatting_prompt = f"""User asked: {text}
 
@@ -134,7 +134,7 @@ Tool outputs:
 
 Create a natural, helpful response."""
             
-            print("[Formatting] Creating response...")
+            print("[Formatting] Creating response with AI agent...")
             format_result = await self.formatter_agent.run(formatting_prompt)
             formatted: FormattedResponse = format_result.output
             
