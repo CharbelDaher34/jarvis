@@ -87,12 +87,67 @@ Jarvis uses a sophisticated pipeline to process your voice commands:
 ## Available Tools
 
 ### 1. **Playwright Agent** (`playwright_agent`)
-Web automation for searching, navigating, and extracting information from websites. Has vision capabilities to understand page layouts.
+
+Intelligent web automation agent with vision capabilities for searching, navigating, and extracting information from websites.
 
 **Example commands:**
 - "Search for Python tutorials"
 - "Go to python.org and find the latest version"
 - "Navigate to GitHub and tell me about trending repositories"
+
+#### How Playwright Agent Works
+
+The playwright agent uses a sophisticated architecture with **3 core components**:
+
+**1. AsyncBrowserSession** - Smart async browser automation
+- Built on Playwright (async/await, no blocking, auto-waiting)
+- **8+ fallback strategies** for interactions - accepts natural language like "Login button" or "Email field"
+- Multi-tab workflow - each navigation opens a new tab
+- Stealth mode with anti-detection measures
+- Optional video recording for debugging
+
+**2. VisionAnalyzer** - Multimodal LLM vision
+- Uses GPT-4o or Claude 3.5 Sonnet to "see" pages like a human
+- Analyzes screenshots to understand page layout and identify elements
+- Suggests next actions based on goals
+- Verifies task completion visually
+
+**3. AdaptiveRetryManager** - Intelligent error recovery
+- Adapts retry strategies based on error patterns
+
+#### Agent Tools: 6 Consolidated Actions
+
+Instead of 20+ fragmented tools, the agent uses 6 powerful tools:
+
+1. **`search(query)`** - Search the web, returns URLs
+2. **`navigate(url)`** - Go to URL in new tab
+3. **`interact(action, target, value)`** - Click, type, or select elements
+   - Accepts natural language: "Login", "Email field", "Submit button"
+   - Tries 8+ strategies automatically (CSS, text, ARIA, XPath, etc.)
+4. **`observe()`** - Analyze page with text + vision
+5. **`extract(selector)`** - Get specific content via CSS selector
+6. **`verify(question)`** - Check if goal achieved (uses vision)
+
+#### "Observe Before Acting" Workflow
+
+```
+1. Understand Goal → Analyze user request
+2. Search (if needed) → Find relevant websites  
+3. Navigate → Go to URL (opens new tab)
+4. OBSERVE FIRST → Use vision + DOM to understand page
+5. Interact → Click/type using observed elements
+6. Extract → Get specific data
+7. Verify → Confirm goal achieved
+```
+
+**Example**: Finding latest Python version
+```
+search("Python version") → navigate(python.org) → observe() 
+→ interact("click", "Downloads") → extract(".version") 
+→ verify("Have version?") → Return "Python 3.12.0"
+```
+
+**Key advantages**: Vision-enhanced understanding, natural language selectors, automatic retries, multi-tab context preservation
 
 ### 2. **Calculator** (`calculator`)
 Performs mathematical calculations with natural language understanding.
