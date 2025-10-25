@@ -7,6 +7,7 @@ from tools.calculator_tool import CalculatorTool
 from tools.datetime_tool import DateTimeTool
 from tools.example_tool import ExampleTool
 from tools.playwright_tool import PlaywrightTool
+from tools.search_tool import SearchTool
 
 async def test_multi_tool_routing():
     """Test cases where multiple tools should be used together."""
@@ -22,29 +23,26 @@ async def test_multi_tool_routing():
     calculator = CalculatorTool(enabled=True)
     datetime = DateTimeTool(enabled=True)
     example = ExampleTool(enabled=True, prefix="[Echo]")
-    playwright = PlaywrightTool(enabled=True)
+    # playwright = PlaywrightTool(enabled=True)  # Commented out for faster testing
+    search = SearchTool(enabled=True)
     
     processor.register(calculator)
     processor.register(datetime)
     processor.register(example)
-    processor.register(playwright)
+    # processor.register(playwright)
+    processor.register(search)
     
     print(f"\nRegistered tools: {processor.get_enabled_tools()}")
     
     # Test cases designed to trigger multiple tools
     test_cases = [
-        "search online for the lebanese prime minister name only",
-        # Single tool tests
-        # "What time is it?",
-        # "Calculate 25 times 4",
+        # Search tool tests
+        "Search for Python tutorials",
+        "Find information about artificial intelligence",
         
-        # # Multi-tool test cases
-        # "What's the time and also calculate 10 plus 5?",
-        # "Tell me today's date and compute 100 divided by 4",
-        # "What day is it and what's 7 times 8?",
-        
-        # Complex multi-tool
-        # "I need to know the current time, today's date, and the result of 15 plus 27",
+        # Multi-tool with search
+        # "Search for Python tutorials and calculate 25 times 4",
+        # "What time is it and find information about AI",
     ]
     
     for i, test_input in enumerate(test_cases, 1):

@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     
     # Tools Configuration
     enabled_tools: List[str] = Field(
-        default_factory=lambda: ["playwright_agent", "calculator", "datetime", "gmail"],
+        default_factory=lambda: ["playwright_agent", "calculator", "datetime", "gmail", "search_tool"],
         description="List of enabled tools"
     )
     playwright_headless: bool = Field(True, description="Run playwright in headless mode")

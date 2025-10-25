@@ -101,8 +101,12 @@ TTS_VOICE_PREFERENCE=jamie
 STOP_WORDS=stop,quit,exit
 
 # Tools
-ENABLED_TOOLS=["playwright_agent", "calculator", "datetime", "gmail"]
+ENABLED_TOOLS=["playwright_agent", "calculator", "datetime", "gmail", "search_tool"]
 PLAYWRIGHT_HEADLESS=true
+
+# Search Engine Keys (optional - DuckDuckGo works without keys)
+GOOGLE_API_KEY=your-api-key
+GOOGLE_SEARCH_ENGINE_ID=your-cse-id
 ```
 
 **Important**: The `playwright_agent` requires an OpenAI API key. Get yours at https://platform.openai.com/api-keys
@@ -247,7 +251,34 @@ Provides current time, date, and day information.
 - "What day is it?"
 - "Tell me the current month"
 
-### 4. Gmail (requires setup)
+### 4. Search Tool
+
+Fast web search across multiple search engines simultaneously (Google, DuckDuckGo).
+
+**Example commands:**
+- "Search for Python tutorials"
+- "Find information about climate change"
+- "Look up latest AI news"
+- "Search python.org for documentation"
+- "Find PDF papers about machine learning"
+
+**Features:**
+- Searches multiple engines in parallel
+- Deduplicates results
+- Supports site filters and file type filters
+- Returns top results with descriptions
+
+**Setup Search Engines:**
+
+For Google (optional):
+```env
+GOOGLE_API_KEY=your-api-key
+GOOGLE_SEARCH_ENGINE_ID=your-cse-id
+```
+
+DuckDuckGo works without API keys (install: `uv add ddgs`)
+
+### 5. Gmail (requires setup)
 
 Search and read your Gmail emails with natural language queries.
 

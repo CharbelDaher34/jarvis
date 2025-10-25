@@ -10,7 +10,9 @@ from urllib.parse import urlparse
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
 
+load_dotenv()
 
 class BrowserConfig(BaseSettings):
     """Browser-specific configuration settings."""
