@@ -153,9 +153,7 @@ class MyTool(BaseTool):
                 "This helps the LLM decide when to use this tool. "
                 "Be specific about what tasks it can handle."
             ),
-            enabled=enabled,
-            priority=50  # Used as fallback if routing fails
-        )
+            enabled=enabled        )
     
     async def process(self, text: str) -> Optional[str]:
         """Process the input and return result."""

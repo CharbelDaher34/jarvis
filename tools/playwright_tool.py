@@ -18,8 +18,7 @@ class PlaywrightTool(BaseTool):
                 "find information online, and perform multi-step web research tasks. "
                 "Has vision capabilities to understand page layout and elements."
             ),
-            enabled=enabled,
-            priority=100
+            enabled=enabled
         )
         self.headless = headless
     

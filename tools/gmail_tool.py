@@ -62,8 +62,7 @@ class GmailTool(BaseTool):
                 "'search for emails about project', 'do I have any unread emails', "
                 "'what did sarah send me', 'show emails with receipt in subject'."
             ),
-            enabled=enabled,
-            priority=70
+            enabled=enabled
         )
         self._init_agent()
         self.service = None

@@ -27,8 +27,7 @@ class ExampleTool(BaseTool):
                 "Echoes back user input with a configurable prefix. "
                 "Useful for testing the tool system and as a template for new tools."
             ),
-            enabled=enabled,
-            priority=10
+            enabled=enabled
         )
         self.prefix = prefix
     

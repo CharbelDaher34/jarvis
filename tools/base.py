@@ -12,9 +12,8 @@ class BaseTool(ABC):
         name: str,
         description: str,
         capabilities: str,
-        enabled: bool = True,
-        priority: int = 0
-    ):
+        enabled: bool = True
+        ):
         """
         Initialize a tool.
         
@@ -23,13 +22,11 @@ class BaseTool(ABC):
             description: Short description of what the tool does
             capabilities: Detailed description of tool's capabilities
             enabled: Whether the tool is active
-            priority: Execution priority (higher = earlier) - used as fallback
         """
         self.name = name
         self.description = description
         self.capabilities = capabilities
         self.enabled = enabled
-        self.priority = priority
     
     @abstractmethod
     async def process(self, text: str) -> Optional[str]:

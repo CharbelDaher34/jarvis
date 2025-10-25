@@ -5,7 +5,7 @@ Instead of blindly retrying the same action, tries different approaches.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Any, Optional, List
+from typing import Callable, Any, List
 from dataclasses import dataclass
 from enum import Enum
 
@@ -30,7 +30,6 @@ class RetryStrategy:
     name: str
     strategy_type: StrategyType
     implementation: Callable
-    priority: int = 5  # 1 = highest priority
 
 
 class AdaptiveRetryManager:
@@ -104,7 +103,7 @@ class AdaptiveRetryManager:
                 name="CSS Selector",
                 strategy_type=StrategyType.CSS_SELECTOR,
                 implementation=self._try_css_selector,
-                priority=1
+
             ))
         
         # Strategy 2: Exact text match
@@ -112,7 +111,6 @@ class AdaptiveRetryManager:
             name="Exact Text Match",
             strategy_type=StrategyType.TEXT_EXACT,
             implementation=self._try_exact_text,
-            priority=2
         ))
         
         # Strategy 3: Partial text match
@@ -120,7 +118,6 @@ class AdaptiveRetryManager:
             name="Partial Text Match",
             strategy_type=StrategyType.TEXT_PARTIAL,
             implementation=self._try_partial_text,
-            priority=3
         ))
         
         # Strategy 4: Role-based (for buttons, links, etc.)
@@ -129,14 +126,12 @@ class AdaptiveRetryManager:
                 name="Role-based (button)",
                 strategy_type=StrategyType.ROLE,
                 implementation=lambda p, t: self._try_role(p, t, "button"),
-                priority=4
             ))
             
             strategies.append(RetryStrategy(
                 name="Role-based (link)",
                 strategy_type=StrategyType.ROLE,
                 implementation=lambda p, t: self._try_role(p, t, "link"),
-                priority=5
             ))
         
         # Strategy 5: ARIA label
@@ -144,7 +139,6 @@ class AdaptiveRetryManager:
             name="ARIA Label",
             strategy_type=StrategyType.ARIA_LABEL,
             implementation=self._try_aria_label,
-            priority=6
         ))
         
         # Strategy 6: Placeholder (for inputs)
@@ -153,7 +147,6 @@ class AdaptiveRetryManager:
                 name="Placeholder",
                 strategy_type=StrategyType.PLACEHOLDER,
                 implementation=self._try_placeholder,
-                priority=7
             ))
         
         # Strategy 7: XPath fallback
@@ -161,11 +154,7 @@ class AdaptiveRetryManager:
             name="XPath",
             strategy_type=StrategyType.XPATH,
             implementation=self._try_xpath,
-            priority=8
         ))
-        
-        # Sort by priority
-        strategies.sort(key=lambda s: s.priority)
         
         return strategies
     

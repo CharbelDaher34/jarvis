@@ -33,8 +33,7 @@ class CalculatorTool(BaseTool):
                 "'twenty-five times four', 'what's 15 plus 37', 'compute 100 divided by 5'. "
                 "Supports decimals, negative numbers, and complex expressions."
             ),
-            enabled=enabled,
-            priority=80
+            enabled=enabled
         )
         self._init_agent()
     

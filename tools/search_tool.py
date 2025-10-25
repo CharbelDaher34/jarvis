@@ -66,9 +66,7 @@ class SearchTool(BaseTool):
                 "Different from playwright_agent which browses and extracts content from pages - "
                 "this tool just finds relevant URLs and summaries."
             ),
-            enabled=enabled,
-            priority=85
-        )
+            enabled=enabled        )
         self._init_agent()
         self.search_manager = EnhancedSearchManager()
     

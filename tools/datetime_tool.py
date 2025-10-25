@@ -38,9 +38,7 @@ class DateTimeTool(BaseTool):
                 "'what day is it', 'what's today', 'current time', 'tell me the month', etc. "
                 "Understands natural language requests for date and time."
             ),
-            enabled=enabled,
-            priority=90
-        )
+            enabled=enabled        )
         self._init_agent()
     
     def _init_agent(self):
