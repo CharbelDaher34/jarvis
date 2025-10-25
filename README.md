@@ -1,88 +1,36 @@
 # Jarvis Voice Assistant
 
-A modular voice-controlled assistant with extensible tool system for web automation and more.
+A modular voice-controlled assistant with an extensible tool system powered by LLM-based intelligent routing.
 
 ## Features
 
 - 🎤 **Continuous listening** with automatic phrase segmentation
 - 🗣️ **Speech-to-Text** using Whisper or PocketSphinx
 - 🔊 **Text-to-Speech** with pyttsx3
-- 🤖 **Intelligent tool routing** - LLM selects the best tools for each task
+- 🤖 **Intelligent tool routing** - LLM automatically selects the best tools
 - ⚡ **Parallel execution** - runs multiple tools concurrently
-- 🛠️ **Extensible tool system** - easily add/remove capabilities
-- 🌐 **Web automation** via playwright_agent
-- ⚙️ **Configurable** via environment variables
+- 🛠️ **Extensible tool system** - easily add new capabilities
+- 🌐 **Web automation** and **multi-engine search**
 
-## Project Structure
+## Quick Start
 
-```
-jarvis/
-├── main.py                    # Entry point
-├── config.py                  # Configuration management
-├── voice/                     # Voice I/O module
-│   ├── stt.py                # Speech-to-Text
-│   └── tts.py                # Text-to-Speech
-├── tools/                     # Tool system
-│   ├── base.py               # BaseTool interface
-│   ├── processor.py          # Tool orchestrator
-│   └── playwright_tool.py    # Web automation tool
-├── playwright_agent/          # Browser automation package
-│   ├── agents/
-│   ├── core/
-│   └── ...
-└── improved_usage.py          # Playwright agent examples
-```
-
-## Installation
-
-### Prerequisites
+### Installation
 
 ```bash
-# Install uv (if not already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
 # Clone repository
 git clone <repo-url>
 cd jarvis
+
+# Install all dependencies
+uv sync
 ```
 
-### Install Dependencies
+### Configuration
 
-```bash
-# Install Python packages
-uv add SpeechRecognition pyttsx3 pyaudio
-
-# For Whisper support (optional, but recommended)
-uv add torch whisper soundfile numpy
-
-# For PocketSphinx (offline STT alternative)
-uv add pocketsphinx
-```
-
-### Platform-Specific Notes
-
-**Windows:**
-- PyAudio might need prebuilt wheel from [Gohlke](https://www.lfd.uci.edu/~gohlke/pythonlibs/)
-
-**macOS:**
-```bash
-brew install portaudio
-uv add pyaudio
-```
-
-**Linux (Debian/Ubuntu):**
-```bash
-sudo apt-get update
-sudo apt-get install -y portaudio19-dev python3-pyaudio
-uv add pyaudio
-```
-
-## Configuration
-
-Create a `.env` file in the project root with your settings:
+Create a `.env` file in the project root:
 
 ```env
-# OpenAI API Key (required for playwright_agent)
+# OpenAI API Key (required for LLM-based routing and some tools)
 OPENAI_API_KEY=sk-your-key-here
 
 # Speech Recognition
@@ -100,38 +48,91 @@ TTS_VOICE_PREFERENCE=jamie
 # Stop Words (exit assistant)
 STOP_WORDS=stop,quit,exit
 
-# Tools
+# Tools (comma-separated list)
 ENABLED_TOOLS=["playwright_agent", "calculator", "datetime", "gmail", "search_tool"]
 PLAYWRIGHT_HEADLESS=true
-
-# Search Engine Keys (optional - DuckDuckGo works without keys)
-GOOGLE_API_KEY=your-api-key
-GOOGLE_SEARCH_ENGINE_ID=your-cse-id
 ```
 
-**Important**: The `playwright_agent` requires an OpenAI API key. Get yours at https://platform.openai.com/api-keys
-
-## Usage
-
-### Run the Assistant
+### Run
 
 ```bash
 uv run main.py
 ```
 
-The assistant will:
-1. Calibrate for ambient noise
-2. Wait for your voice
-3. Transcribe your speech
-4. Use LLM to intelligently select appropriate tools
-5. Execute selected tools in parallel
-6. Format and speak the result back
+Say any command, and Jarvis will intelligently select the appropriate tool(s) to help you!
 
-### Exit
+## How It Works
 
-Say any stop word (`stop`, `quit`, `exit`) or press `Ctrl+C`.
+Jarvis uses a sophisticated pipeline to process your voice commands:
 
-## Adding New Tools
+```
+1. Detect Voice → 2. Voice-to-Text → 3. Tool Processing → 4. Format Result → 5. Speak Result
+```
+
+### Processing Pipeline
+
+1. **Detect Voice**: Continuous listening with automatic phrase segmentation
+2. **Voice-to-Text**: Transcribes speech using Whisper (accurate) or PocketSphinx (offline)
+3. **Tool Processing**: Two intelligent approaches:
+   - **Selector Approach (default)**: 
+     - LLM analyzes request and selects appropriate tool(s)
+     - Selected tools run in parallel for speed
+     - Another LLM formats all outputs into a natural response
+   - **Agentic Approach**: 
+     - Single agent with direct access to all tools
+     - Agent decides when and how to use tools iteratively
+4. **Format Result**: Synthesizes tool outputs into conversational response
+5. **Speak Result**: Delivers response via text-to-speech
+
+## Available Tools
+
+### 1. **Playwright Agent** (`playwright_agent`)
+Web automation for searching, navigating, and extracting information from websites. Has vision capabilities to understand page layouts.
+
+**Example commands:**
+- "Search for Python tutorials"
+- "Go to python.org and find the latest version"
+- "Navigate to GitHub and tell me about trending repositories"
+
+### 2. **Calculator** (`calculator`)
+Performs mathematical calculations with natural language understanding.
+
+**Example commands:**
+- "Calculate 25 times 4"
+- "What's 15 plus 37?"
+- "Compute 100 divided by 5"
+- "What's 2 to the power of 8?"
+
+### 3. **DateTime** (`datetime`)
+Provides current time, date, and day information.
+
+**Example commands:**
+- "What time is it?"
+- "What's today's date?"
+- "What day is it?"
+
+### 4. **Search Tool** (`search_tool`)
+Fast web search across multiple search engines simultaneously (Google, DuckDuckGo). Returns aggregated results with deduplication.
+
+**Example commands:**
+- "Search for Python tutorials"
+- "Find information about climate change"
+- "Look up Python documentation on python.org"
+- "Find PDF papers about machine learning"
+
+**Note:** Different from playwright_agent - this tool finds URLs and summaries, while playwright_agent browses and extracts detailed content.
+
+### 5. **Gmail** (`gmail`)
+Search and read Gmail emails with natural language queries. Requires OAuth2 setup.
+
+**Example commands:**
+- "Show my recent emails"
+- "Find emails from john"
+- "Do I have any unread emails?"
+
+**Setup:** Place `oauth2_credentials.json` from Google Cloud Console in project root. First run opens browser for authentication.
+
+## Adding Custom Tools
 
 ### 1. Create Your Tool
 
@@ -147,18 +148,17 @@ class MyTool(BaseTool):
     def __init__(self, enabled: bool = True):
         super().__init__(
             name="my_tool",
-            description="Brief one-line description of what the tool does",
+            description="Brief one-line description",
             capabilities=(
-                "Detailed description of the tool's capabilities. "
-                "This helps the LLM decide when to use this tool. "
-                "Be specific about what tasks it can handle."
+                "Detailed explanation of what this tool can do. "
+                "Be specific - this helps the LLM decide when to use it."
             ),
-            enabled=enabled        )
+            enabled=enabled
+        )
     
     async def process(self, text: str) -> Optional[str]:
         """Process the input and return result."""
         try:
-            # Your tool logic here
             result = f"Processed: {text}"
             return result
         except Exception as e:
@@ -166,220 +166,123 @@ class MyTool(BaseTool):
             return None
 ```
 
-**Key Points:**
-- `description`: Short, clear summary (shown to LLM)
-- `capabilities`: Detailed explanation of what the tool can do
-- The LLM automatically decides when to use your tool based on these descriptions
-- No need for `should_process()` - intelligent routing handles it!
+**Tool Definition:**
+- All tools inherit from `BaseTool` (see `tools/base.py`)
+- Required attributes:
+  - `name`: Unique identifier
+  - `description`: Short summary (shown to LLM)
+  - `capabilities`: Detailed explanation (helps LLM decide when to use)
+- Must implement `async def process(text: str) -> Optional[str]`
 
 ### 2. Register Your Tool
 
-In `main.py`, add your tool:
+In `main.py`, add:
 
 ```python
 from tools.my_tool import MyTool
 
-# In main() function, after creating processor:
+# In main() function:
 if "my_tool" in settings.enabled_tools:
     my_tool = MyTool(enabled=True)
     processor.register(my_tool)
 ```
 
-### 3. Enable in Configuration
+### 3. Enable in Config
 
-Add to your `.env` or `config.py`:
+Add to `.env`:
 
 ```env
 ENABLED_TOOLS=["playwright_agent", "my_tool"]
 ```
 
-## How Intelligent Routing Works
+## Project Structure
 
-Jarvis supports two approaches for tool routing:
+```
+jarvis/
+├── main.py                      # Entry point - voice assistant loop
+├── config.py                    # Configuration management (Pydantic)
+├── voice/                       # Voice I/O module
+│   ├── stt.py                  # Speech-to-Text (Whisper/PocketSphinx)
+│   └── tts.py                  # Text-to-Speech (pyttsx3)
+├── tools/                       # Tool system
+│   ├── base.py                 # BaseTool abstract class
+│   ├── processor.py            # Tool orchestrator with intelligent routing
+│   ├── routing.py              # LLM agents for tool selection/formatting
+│   ├── playwright_tool.py      # Web automation
+│   ├── calculator_tool.py      # Math calculations
+│   ├── datetime_tool.py        # Time/date info
+│   ├── gmail_tool.py           # Email search
+│   └── search_tool.py          # Multi-engine web search
+├── playwright_agent/            # Browser automation package
+│   ├── agents/                 # Intelligent browser agents
+│   ├── core/                   # Browser core, vision analyzer
+│   └── search_engines.py       # Multi-engine search manager
+└── pyproject.toml              # Dependencies and project config
+```
 
-### Approach 1: Selector (Default)
+## Configuration Options
 
-When you speak a command, Jarvis uses a 3-step process:
+### Tool Processing Approach
 
-1. **Selection**: An LLM analyzes your request and selects the most appropriate tool(s) based on their descriptions and capabilities
-2. **Execution**: Selected tools run in parallel (concurrently) for speed
-3. **Formatting**: Another LLM synthesizes all tool outputs into a natural, conversational response
+Choose between two processing approaches in `main.py`:
 
-**Benefits:**
-- Automatically chooses the right tool for the job
-- Can use multiple tools together when needed
-- Fast parallel execution
-- Explicit reasoning about tool selection
-- Natural language responses
-
-**Example:**
-- You say: "Search for Python tutorials and tell me about the latest version"
-- Selector LLM: Chooses `playwright_agent` (can search and extract info)
-- Executor: Runs web search and extraction
-- Formatter: Creates friendly response from results
-
-### Approach 2: Native Pydantic AI Tools
-
-Tools are registered directly with a Pydantic AI agent as native function tools:
-
-1. **Direct Access**: The agent has all tools available as function calls
-2. **Agent-Driven**: The agent decides when and how to use tools
-3. **Single Response**: Tool usage and response formatting happen in one step
-
-**Benefits:**
-- Simpler architecture following Pydantic AI patterns
-- Potentially fewer LLM calls
-- Agent can iteratively use tools
-- Standard Pydantic AI tool conventions
-
-**To use the native approach:**
 ```python
+# Default: Selector approach (explicit tool selection + formatting)
+processor = ToolProcessor(approach="selector")
+
+# Alternative: Native/Agentic approach (agent with direct tool access)
 processor = ToolProcessor(approach="native")
 ```
 
-See `tools/APPROACHES.md` for detailed comparison and examples.
+**Selector Approach** (default):
+- Clear separation: selection → execution → formatting
+- Explicit reasoning about tool choices
+- Fast parallel execution
+- More LLM calls but transparent logic
 
-## Available Tools
-
-### 1. Playwright Agent
-
-Web automation tool for searching, navigating, and extracting information from websites.
-
-**Example commands:**
-- "Search for Python tutorials"
-- "Go to python.org and find the latest version"
-- "Navigate to GitHub and tell me about trending repositories"
-
-**Configure:**
-```env
-PLAYWRIGHT_HEADLESS=true  # Run without visible browser
-```
-
-### 2. Calculator
-
-Performs mathematical calculations with natural language understanding.
-
-**Example commands:**
-- "Calculate 25 times 4"
-- "What's 15 plus 37?"
-- "Compute 100 divided by 5"
-- "What's 2 to the power of 8?"
-
-### 3. DateTime
-
-Provides current time, date, and day information.
-
-**Example commands:**
-- "What time is it?"
-- "What's today's date?"
-- "What day is it?"
-- "Tell me the current month"
-
-### 4. Search Tool
-
-Fast web search across multiple search engines simultaneously (Google, DuckDuckGo).
-
-**Example commands:**
-- "Search for Python tutorials"
-- "Find information about climate change"
-- "Look up latest AI news"
-- "Search python.org for documentation"
-- "Find PDF papers about machine learning"
-
-**Features:**
-- Searches multiple engines in parallel
-- Deduplicates results
-- Supports site filters and file type filters
-- Returns top results with descriptions
-
-**Setup Search Engines:**
-
-For Google (optional):
-```env
-GOOGLE_API_KEY=your-api-key
-GOOGLE_SEARCH_ENGINE_ID=your-cse-id
-```
-
-DuckDuckGo works without API keys (install: `uv add ddgs`)
-
-### 5. Gmail (requires setup)
-
-Search and read your Gmail emails with natural language queries.
-
-**Example commands:**
-- "Show my recent emails"
-- "Find emails from john"
-- "Do I have any unread emails?"
-- "Search for emails about invoice"
-- "Show last 10 emails from sarah"
-
-**Setup Gmail Tool:**
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing one
-3. Enable Gmail API
-4. Create OAuth 2.0 credentials (Desktop app)
-5. Download credentials as `oauth2_credentials.json`
-6. Place in project root directory
-7. First run will open browser for authentication
-
-```bash
-# Install Gmail dependencies
-uv add google-auth-oauthlib google-auth-httplib2 google-api-python-client
-```
-
-## Development
-
-### Project Philosophy
-
-- **Simple**: Avoid unnecessary complexity
-- **Modular**: Clear separation of concerns
-- **Extensible**: Easy to add new capabilities
-- **Configurable**: Customize via config, not code changes
-
-### Key Components
-
-1. **Voice Module (`voice/`)**: Handles all speech I/O
-2. **Tools System (`tools/`)**: Plugin-like architecture for processing
-3. **Configuration (`config.py`)**: Centralized settings management
-4. **Main Loop (`main.py`)**: Orchestrates everything
-
-### Testing
-
-Test individual components:
-
-```bash
-# Test playwright agent examples
-uv run improved_usage.py
-
-# Test voice recognition only
-python -c "from voice import SpeechRecognizer; print('Import OK')"
-
-# Test TTS only
-python -c "from voice import TextToSpeech; tts = TextToSpeech(); tts.speak('Hello')"
-```
+**Native/Agentic Approach**:
+- Single agent with tool access
+- Iterative tool usage
+- Fewer LLM calls
+- Standard Pydantic AI patterns
 
 ## Troubleshooting
 
-### Microphone not detected
+### Microphone Issues
 ```bash
 # List available microphones
 python -c "import speech_recognition as sr; print(sr.Microphone.list_microphone_names())"
 ```
-
 Set `MIC_DEVICE_INDEX` in `.env` to the correct index.
 
-### Whisper errors
-- Reduce model size: `WHISPER_MODEL=tiny` (faster, less accurate)
-- Or use PocketSphinx: `USE_WHISPER=false`
+### Speech Recognition
+- **Whisper errors**: Try smaller model: `WHISPER_MODEL=tiny`
+- **Offline alternative**: `USE_WHISPER=false` (uses PocketSphinx)
 
-### No sound output
-- Check TTS voice preference: `TTS_VOICE_PREFERENCE=david` or `jamie`
+### TTS Issues
+- Check voice preference: `TTS_VOICE_PREFERENCE=david` or `jamie`
 - Verify volume: `TTS_VOLUME=1.0`
 
-## License
+### OpenAI API
+- Required for intelligent routing and some tools
+- Get your key at https://platform.openai.com/api-keys
 
-MIT
+## Platform-Specific Notes
+
+**Windows:**
+- PyAudio may need prebuilt wheel from [Gohlke](https://www.lfd.uci.edu/~gohlke/pythonlibs/)
+
+**macOS:**
+```bash
+brew install portaudio
+```
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo apt-get update
+sudo apt-get install -y portaudio19-dev python3-pyaudio
+```
+
 
 ## Contributing
 
@@ -391,4 +294,4 @@ Contributions welcome! Please:
 
 ---
 
-**Note:** Original `say_and_repeat.py` archived as `say_and_repeat.py.old` for reference.
+**Main Script**: `main.py` - Run with `uv run main.py`
